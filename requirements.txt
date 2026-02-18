@@ -1,0 +1,29 @@
+# Mihono Bourbot — Python Dependencies
+# Install all:       pip install -r requirements.txt
+# Install bot only:  pip install opencv-python numpy Pillow pytesseract pywin32 keyboard pyinstaller
+
+# ─── Bot (required) ─────────────────────────────────────────────
+opencv-python>=4.8.0             # Computer vision
+numpy>=1.24.0                    # Array operations
+Pillow>=10.0.0                   # Image processing
+pytesseract>=0.3.10              # OCR (requires Tesseract-OCR system install)
+pywin32>=306                     # Window interaction
+keyboard>=0.13.5                 # Hotkeys (F9/F10)
+pyinstaller>=6.0.0               # .exe packaging
+
+# ─── Development (optional) ─────────────────────────────────────
+pytest>=7.4.0                    # Unit tests
+pytest-cov>=4.1.0                # Code coverage
+black>=23.0.0                    # Code formatter
+flake8>=6.1.0                    # Linter
+mypy>=1.5.0                      # Type checking
+pylint>=3.0.0                    # Static analysis
+sphinx>=7.2.0                    # Doc generation
+sphinx-rtd-theme>=2.0.0          # ReadTheDocs theme
+ipython>=8.18.0                  # Interactive REPL
+ipdb==0.13.13                    # Debugger
+memory-profiler==0.61.0          # Memory profiling
+build==1.0.3                     # Package build
+twine==4.0.2                     # PyPI publish
+pre-commit==3.5.0                # Git hooks
+coverage==7.3.2                  # Test coverage

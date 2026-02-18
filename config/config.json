@@ -1,0 +1,118 @@
+{
+    "display_settings": {
+        "windowed_mode": true,
+        "resolution": [
+            1080,
+            1920
+        ],
+        "calibration_on_start": true,
+        "fullscreen_fallback": false
+    },
+    "training_targets": {
+        "speed": 1200,
+        "stamina": 800,
+        "power": 700,
+        "wit": 400,
+        "guts": 400,
+        "tolerance": 50
+    },
+    "stat_priority": [
+        "speed",
+        "stamina",
+        "power",
+        "wit",
+        "guts"
+    ],
+    "race_strategy": {
+        "default": "Pace"
+    },
+    "thresholds": {
+        "energy_low": 40,
+        "energy_training": 50,
+        "rainbow_energy_min": 40,
+        "mood_threshold": "Great"
+    },
+    "automation_settings": {
+        "click_offset_range": [
+            5,
+            15
+        ],
+        "action_delay_min": 1.0,
+        "action_delay_max": 3.0,
+        "ocr_confidence": 0.75,
+        "template_match_threshold": 0.8
+    },
+    "safety_settings": {
+        "emergency_stop_key": "F12",
+        "screenshot_on_error": true,
+        "logging_enabled": true
+    },
+    "event_handling": {
+        "unknown_event_choice": 1,
+        "use_event_database": true,
+        "learn_from_choices": false
+    },
+    "scenario": "unity_cup",
+    "roi_calibration": {
+        "game_rect": {
+            "x1": 0.3106,
+            "y1": 0.0,
+            "x2": 0.6872,
+            "y2": 1.0
+        },
+        "energy_bar": {
+            "x1": 0.3398,
+            "y1": 0.1087,
+            "x2": 0.6776,
+            "y2": 0.1413
+        },
+        "support_region": {
+            "x1": 0.8267,
+            "y1": 0.1402,
+            "x2": 0.9867,
+            "y2": 0.5202
+        },
+        "event_text": {
+            "x1": 0.08,
+            "y1": 0.28,
+            "x2": 0.82,
+            "y2": 0.55
+        },
+        "event_choices": {
+            "x1": 0.1564,
+            "y1": 0.2576,
+            "x2": 1.0564,
+            "y2": 0.7576
+        },
+        "training_positions": {
+            "speed": {
+                "x": 0.2034,
+                "y": 0.8391
+            },
+            "stamina": {
+                "x": 0.3512,
+                "y": 0.8391
+            },
+            "power": {
+                "x": 0.5,
+                "y": 0.843
+            },
+            "guts": {
+                "x": 0.6532,
+                "y": 0.8424
+            },
+            "wit": {
+                "x": 0.801,
+                "y": 0.8402
+            }
+        },
+        "enabled": {
+            "game_rect": true,
+            "energy_bar": true,
+            "support_region": true,
+            "event_text": false,
+            "event_choices": false,
+            "training": true
+        }
+    }
+}
