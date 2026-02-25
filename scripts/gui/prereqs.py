@@ -1,10 +1,10 @@
+import importlib.util
 import os
+import re
 import sys
-import shutil
 import subprocess
 import threading
-import urllib.request
-import tempfile
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
@@ -14,89 +14,136 @@ if __name__ == "__main__" or __package__ is None:
         os.path.abspath(__file__)))))
     os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
-    from scripts.gui.config import TESSERACT_PATHS, REQUIRED_TEMPLATES, REQUIRED_PACKAGES
+    from scripts.gui.config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES
 else:
-    from .config import TESSERACT_PATHS, REQUIRED_TEMPLATES, REQUIRED_PACKAGES
+    from .config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES
 
-_TESSERACT_URL = (
-    "https://github.com/UB-Mannheim/tesseract/releases/download/"
-    "v5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-)
+_BG       = "#1e1e2e"
+_BG_ALT   = "#252538"
+_ACCENT   = "#7c6fff"
+_ACCENT_HV= "#6a5de0"
+_FG       = "#cdd6f4"
+_FG_DIM   = "#888ca8"
+_GREEN    = "#5a9e57"
+_RED      = "#c45c6a"
+_YELLOW   = "#b89b4a"
+_BORDER   = "#393952"
+_CARD_BG  = "#2a2a3d"
 
-def _find_tesseract():
-    t = shutil.which("tesseract")
-    if t:
-        return t
-    user = os.environ.get("USERNAME", "")
-    for p in TESSERACT_PATHS:
-        real = p.replace("{user}", user)
-        if os.path.isfile(real):
-            return real
-    return None
+_MIN_PYTHON = (3, 8)
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+_EASYOCR_PKG_ESTIMATE = 45
 
-def prompt_user(message, default=True):
-    root = tk._default_root
-    if root is None:
-        root = tk.Tk()
-        root.withdraw()
-    return messagebox.askyesno(
-        "Mihono Bourbot", message, default="yes" if default else "no"
-    )
+def _check_easyocr() -> bool:
+    try:
+        import easyocr
+        return True
+    except ImportError:
+        return False
+
+def _check_python_version() -> bool:
+    return sys.version_info >= _MIN_PYTHON
 
 def check_prerequisites():
-    issues = {"python_packages": [], "tesseract": None, "templates": []}
-
+    issues = {
+        "python_version": None,
+        "python_packages": [],
+        "easyocr": None,
+        "templates": [],
+    }
+    if not _check_python_version():
+        issues["python_version"] = (
+            f"{sys.version_info.major}.{sys.version_info.minor}"
+            f".{sys.version_info.micro}"
+        )
     for module, pip_name in REQUIRED_PACKAGES.items():
-        try:
-            __import__(module)
-        except ImportError:
+        if importlib.util.find_spec(module) is None:
             issues["python_packages"].append(pip_name)
-
-    if not _find_tesseract():
-        issues["tesseract"] = "not_found"
-
-    templates_dir = Path("templates")
-    if templates_dir.exists():
-        existing = {f.stem for f in templates_dir.rglob("*.png")}
+    if not _check_easyocr():
+        issues["easyocr"] = "not_found"
+    existing = set()
+    for folder in (Path("templates"),):
+        if folder.exists():
+            existing.update(f.stem for f in folder.rglob("*.png"))
+    if existing:
         for t in REQUIRED_TEMPLATES:
             if t not in existing:
                 issues["templates"].append(t)
     else:
         issues["templates"] = list(REQUIRED_TEMPLATES)
-
     return issues
 
-_BG        = "#1e1e2e"
-_BG_ALT    = "#252538"
-_ACCENT    = "#7c6fff"
-_ACCENT_HV = "#6a5de0"
-_FG        = "#cdd6f4"
-_FG_DIM    = "#888ca8"
-_GREEN     = "#5a9e57"
-_RED       = "#c45c6a"
-_YELLOW    = "#b89b4a"
-_BORDER    = "#393952"
-_CARD_BG   = "#2a2a3d"
+def _pip_run_with_progress(cmd, set_target, set_msg, on_done, on_error):
+    last_real_error = ""
+    collecting_count = 0
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_NO_WINDOW,
+        )
+        for raw in proc.stdout:
+            line = raw.rstrip()
+            if not line:
+                continue
+            if any(x in line for x in ["[notice]", "Notice:", "WARNING:"]):
+                continue
+            stripped = line.lstrip()
+            lo = stripped.lower()
+            if lo.startswith("collecting "):
+                collecting_count += 1
+                pkg = stripped.split()[1].split("-")[0].split("=")[0]
+                target = min(5 + collecting_count * 1.8, 40)
+                set_target(target)
+                set_msg(f"Collecting {pkg}\u2026")
+            elif lo.startswith("downloading "):
+                pkg = stripped.split()[1].split("-")[0] if len(stripped.split()) > 1 else "package"
+                m = re.search(r"\((\d+\.?\d*)\s*(GB|MB|kB)\)", stripped)
+                if m:
+                    val, unit = float(m.group(1)), m.group(2)
+                    mb = val * 1024 if unit == "GB" else (val if unit == "MB" else val / 1024)
+                    bonus = min(mb / 25.0, 40.0)
+                    set_target(min(40 + bonus, 88))
+                else:
+                    set_target(min(40 + 8, 88))
+                set_msg(f"Downloading {pkg}\u2026")
+            elif "installing collected packages" in lo:
+                set_target(93)
+                set_msg("Installing\u2026")
+            elif "successfully installed" in lo:
+                set_target(100)
+                set_msg("\u2713 Done!")
+            elif "error" in lo and "warning" not in lo and "[notice]" not in lo:
+                last_real_error = stripped
+        proc.wait()
+        if proc.returncode == 0:
+            on_done()
+        else:
+            on_error(last_real_error or "Installation failed. Check your internet connection.")
+    except Exception as exc:
+        on_error(str(exc))
 
 class PrerequisiteDialog(tk.Toplevel):
 
     def __init__(self, parent, issues):
         super().__init__(parent)
         self.title("Mihono Bourbot \u2014 Prerequisites")
-        self.geometry("700x560")
+        self.geometry("700x580")
         self.resizable(False, False)
         self.configure(bg=_BG)
         self.transient(parent)
         self.grab_set()
         self.result = "cancel"
         self.issues = issues
-
         self._setup_styles()
         self._build(issues)
-
         self.update_idletasks()
         px = parent.winfo_x() + (parent.winfo_width() - 700) // 2
-        py = parent.winfo_y() + (parent.winfo_height() - 560) // 2
+        py = parent.winfo_y() + (parent.winfo_height() - 580) // 2
         self.geometry(f"+{max(0, px)}+{max(0, py)}")
 
     def _setup_styles(self):
@@ -104,36 +151,32 @@ class PrerequisiteDialog(tk.Toplevel):
         s.configure("Prereq.TFrame", background=_BG)
         s.configure("Card.TFrame", background=_CARD_BG)
         s.configure("Prereq.TLabel", background=_BG, foreground=_FG,
-                     font=("Segoe UI", 10))
+                    font=("Segoe UI", 10))
         s.configure("Card.TLabel", background=_CARD_BG, foreground=_FG,
-                     font=("Segoe UI", 10))
+                    font=("Segoe UI", 10))
         s.configure("CardDim.TLabel", background=_CARD_BG, foreground=_FG_DIM,
-                     font=("Segoe UI", 9))
+                    font=("Segoe UI", 9))
         s.configure("Header.TLabel", background=_BG, foreground=_ACCENT,
-                     font=("Segoe UI Bold", 14))
+                    font=("Segoe UI Bold", 14))
         s.configure("SubHeader.TLabel", background=_CARD_BG, foreground=_FG,
-                     font=("Segoe UI Semibold", 11))
-
+                    font=("Segoe UI Semibold", 11))
         s.configure("Prereq.TButton", background=_ACCENT, foreground="#ffffff",
-                     font=("Segoe UI Semibold", 10), padding=[14, 5],
-                     borderwidth=0)
+                    font=("Segoe UI Semibold", 10), padding=[14, 5],
+                    borderwidth=0)
         s.map("Prereq.TButton",
               background=[("active", _ACCENT_HV), ("pressed", _ACCENT_HV)])
-
         s.configure("Green.TButton", background=_GREEN, foreground="#ffffff",
-                     font=("Segoe UI Semibold", 10), padding=[14, 5],
-                     borderwidth=0)
+                    font=("Segoe UI Semibold", 10), padding=[14, 5],
+                    borderwidth=0)
         s.map("Green.TButton",
               background=[("active", "#4d8a4b"), ("pressed", "#4d8a4b")])
-
         s.configure("Dim.TButton", background=_BG_ALT, foreground=_FG_DIM,
-                     font=("Segoe UI", 10), padding=[14, 5], borderwidth=0)
+                    font=("Segoe UI", 10), padding=[14, 5], borderwidth=0)
         s.map("Dim.TButton",
               background=[("active", _BORDER), ("pressed", _BORDER)])
-
-        s.configure("Prereq.Horizontal.TProgressbar",
-                     troughcolor=_BG_ALT, background=_ACCENT,
-                     borderwidth=0, thickness=8)
+        s.configure("Install.Horizontal.TProgressbar",
+                    troughcolor=_BG_ALT, background=_ACCENT,
+                    borderwidth=0, thickness=10)
 
     def _build(self, issues):
         hdr_frame = tk.Frame(self, bg=_BG)
@@ -142,15 +185,12 @@ class PrerequisiteDialog(tk.Toplevel):
             hdr_frame, text="\u26A0  Prerequisites Check",
             font=("Segoe UI Bold", 14), bg=_BG, fg=_ACCENT,
         ).pack(side="left")
-
         tk.Label(
-            self, text="Some items need attention before the bot can run.",
+            self, text="The items below must be installed before the bot can run.",
             font=("Segoe UI", 10), bg=_BG, fg=_FG_DIM,
         ).pack(anchor="w", padx=24, pady=(0, 12))
-
         container = tk.Frame(self, bg=_BG)
         container.pack(fill="both", expand=True, padx=24, pady=(0, 8))
-
         canvas = tk.Canvas(container, bg=_BG, highlightthickness=0)
         scrollbar = ttk.Scrollbar(container, orient="vertical",
                                   command=canvas.yview)
@@ -164,27 +204,24 @@ class PrerequisiteDialog(tk.Toplevel):
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
         self.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
-
+        if issues.get("python_version"):
+            self._build_python_version_card(issues["python_version"])
         if issues["python_packages"]:
             self._build_packages_card(issues["python_packages"])
-        if issues["tesseract"]:
-            self._build_tesseract_card()
+        if issues["easyocr"]:
+            self._build_easyocr_card()
         if issues["templates"]:
             self._build_templates_card(issues["templates"])
-
         btn_frame = tk.Frame(self, bg=_BG)
         btn_frame.pack(fill="x", padx=24, pady=(4, 16))
-
         ttk.Button(
             btn_frame, text="Re-check", style="Prereq.TButton",
             command=self._recheck,
         ).pack(side="right", padx=(8, 0))
-
         ttk.Button(
             btn_frame, text="Continue Anyway", style="Dim.TButton",
             command=self._continue,
@@ -194,100 +231,97 @@ class PrerequisiteDialog(tk.Toplevel):
         card = tk.Frame(parent, bg=_CARD_BG, highlightbackground=_BORDER,
                         highlightthickness=1)
         card.pack(fill="x", pady=(0, 10))
-
         inner = tk.Frame(card, bg=_CARD_BG)
         inner.pack(fill="x", padx=16, pady=12)
-
         tk.Label(
             inner, text=f"{icon}  {title}",
             font=("Segoe UI Semibold", 11), bg=_CARD_BG, fg=_FG,
         ).pack(anchor="w")
-
         body = tk.Frame(inner, bg=_CARD_BG)
         body.pack(fill="x", anchor="w", pady=(6, 0))
         return card, body
 
+    def _make_progress_block(self, body):
+        prog_var = tk.DoubleVar(value=0)
+        bar = ttk.Progressbar(
+            body, variable=prog_var, maximum=100, length=480,
+            style="Install.Horizontal.TProgressbar",
+        )
+        bar.pack(anchor="w", pady=(10, 2))
+        status_lbl = tk.Label(
+            body, text="", font=("Segoe UI", 9),
+            bg=_CARD_BG, fg=_FG_DIM, anchor="w",
+        )
+        status_lbl.pack(anchor="w")
+        return prog_var, status_lbl
+
+    def _build_python_version_card(self, current_version):
+        _, body = self._make_card(
+            self._content, "Python Version Too Old", "\U0001F40D"
+        )
+        req = f"{_MIN_PYTHON[0]}.{_MIN_PYTHON[1]}"
+        tk.Label(
+            body,
+            text=(
+                f"Python {req}+ is required. You currently have Python {current_version}.\n"
+                "Please download and install the latest Python version, then restart the bot."
+            ),
+            font=("Segoe UI", 10), bg=_CARD_BG, fg=_FG_DIM,
+            anchor="w", justify="left",
+        ).pack(anchor="w")
+        btn_row = tk.Frame(body, bg=_CARD_BG)
+        btn_row.pack(anchor="w", pady=(10, 0))
+        ttk.Button(
+            btn_row, text="\U0001F310  Download Python", style="Green.TButton",
+            command=lambda: __import__("webbrowser").open(
+                "https://www.python.org/downloads/"),
+        ).pack(side="left")
+
     def _build_packages_card(self, packages):
         _, body = self._make_card(
-            self._content, "Missing Python Packages", "\U0001F4E6"
+            self._content, "Missing Dependencies", "\U0001F4E6"
         )
-
+        tk.Label(
+            body,
+            text="Some required components are missing and need to be installed.",
+            font=("Segoe UI", 10), bg=_CARD_BG, fg=_FG_DIM, anchor="w",
+        ).pack(anchor="w")
         for pkg in packages:
             tk.Label(
                 body, text=f"  \u2022  {pkg}", font=("Consolas", 10),
                 bg=_CARD_BG, fg=_FG_DIM, anchor="w",
             ).pack(anchor="w")
-
-        tk.Label(
-            body,
-            text=f"\nFix:  pip install {' '.join(packages)}",
-            font=("Consolas", 9), bg=_CARD_BG, fg=_FG_DIM, anchor="w",
-        ).pack(anchor="w", pady=(4, 0))
-
+        prog_var, status_lbl = self._make_progress_block(body)
         btn_row = tk.Frame(body, bg=_CARD_BG)
         btn_row.pack(anchor="w", pady=(8, 0))
         self._pkg_btn = ttk.Button(
-            btn_row, text="Install Packages", style="Green.TButton",
-            command=self._install_packages,
+            btn_row, text="Install Automatically", style="Green.TButton",
+            command=lambda: self._install_packages(packages, prog_var, status_lbl),
         )
         self._pkg_btn.pack(side="left")
-        self._pkg_status = tk.Label(
-            btn_row, text="", font=("Segoe UI", 9),
-            bg=_CARD_BG, fg=_FG_DIM,
-        )
-        self._pkg_status.pack(side="left", padx=(12, 0))
 
-    def _build_tesseract_card(self):
+    def _build_easyocr_card(self):
         _, body = self._make_card(
-            self._content, "Tesseract OCR Not Found", "\U0001F50D"
+            self._content, "EasyOCR Not Installed", "\U0001F50D"
         )
-
         tk.Label(
             body,
             text=(
-                "Tesseract is required for reading in-game text.\n"
-                "Click the button below to download and install it\n"
-                "automatically."
+                "EasyOCR is required for reading in-game text.\n"
+                "The installation is fully automatic \u2014 just click the button below."
             ),
             font=("Segoe UI", 10), bg=_CARD_BG, fg=_FG_DIM,
             anchor="w", justify="left",
         ).pack(anchor="w")
-
-        self._tess_progress_frame = tk.Frame(body, bg=_CARD_BG)
-        self._tess_progress_frame.pack(fill="x", pady=(8, 0))
-
-        self._tess_progress = ttk.Progressbar(
-            self._tess_progress_frame,
-            style="Prereq.Horizontal.TProgressbar",
-            orient="horizontal", length=400, mode="determinate",
-        )
-        self._tess_progress_label = tk.Label(
-            self._tess_progress_frame, text="",
-            font=("Segoe UI", 9), bg=_CARD_BG, fg=_FG_DIM,
-        )
-
+        tk.Label(body, text="\u26a0  This download is approximately ~800 MB. Internet connection required.", font=("Segoe UI", 9, "italic"), bg=_CARD_BG, fg=_YELLOW, anchor="w", justify="left").pack(anchor="w", pady=(4, 0))
+        prog_var, status_lbl = self._make_progress_block(body)
         btn_row = tk.Frame(body, bg=_CARD_BG)
         btn_row.pack(anchor="w", pady=(8, 0))
-        self._tess_btn = ttk.Button(
-            btn_row, text="Download & Install Tesseract",
-            style="Green.TButton", command=self._install_tesseract,
+        self._ocr_btn = ttk.Button(
+            btn_row, text="Install Automatically", style="Green.TButton",
+            command=lambda: self._install_easyocr(prog_var, status_lbl),
         )
-        self._tess_btn.pack(side="left")
-        self._tess_status = tk.Label(
-            btn_row, text="", font=("Segoe UI", 9),
-            bg=_CARD_BG, fg=_FG_DIM,
-        )
-        self._tess_status.pack(side="left", padx=(12, 0))
-
-        tk.Label(
-            body,
-            text=(
-                "Or install manually:\n"
-                "  winget install UB-Mannheim.TesseractOCR"
-            ),
-            font=("Consolas", 9), bg=_CARD_BG, fg=_FG_DIM,
-            anchor="w", justify="left",
-        ).pack(anchor="w", pady=(10, 0))
+        self._ocr_btn.pack(side="left")
 
     def _build_templates_card(self, missing):
         n_miss = len(missing)
@@ -297,7 +331,6 @@ class PrerequisiteDialog(tk.Toplevel):
             f"Missing Templates ({n_miss}/{n_total})",
             "\U0001F5BC",
         )
-
         tk.Label(
             body,
             text=(
@@ -307,9 +340,7 @@ class PrerequisiteDialog(tk.Toplevel):
             font=("Segoe UI", 10), bg=_CARD_BG, fg=_FG_DIM,
             anchor="w", justify="left",
         ).pack(anchor="w")
-
-        show = missing[:8]
-        for t in show:
+        for t in missing[:8]:
             tk.Label(
                 body, text=f"  \u2022  {t}.png", font=("Consolas", 10),
                 bg=_CARD_BG, fg=_FG_DIM, anchor="w",
@@ -320,7 +351,6 @@ class PrerequisiteDialog(tk.Toplevel):
                 text=f"  \u2026 and {len(missing) - 8} more",
                 font=("Segoe UI", 9, "italic"), bg=_CARD_BG, fg=_FG_DIM,
             ).pack(anchor="w")
-
         btn_row = tk.Frame(body, bg=_CARD_BG)
         btn_row.pack(anchor="w", pady=(8, 0))
         ttk.Button(
@@ -328,116 +358,135 @@ class PrerequisiteDialog(tk.Toplevel):
             command=self._capture_templates,
         ).pack(side="left")
 
-    def _install_packages(self):
-        pkgs = self.issues["python_packages"]
-        cmd = [sys.executable, "-m", "pip", "install", "--user"] + pkgs
+    def _install_packages(self, packages, prog_var, status_lbl):
         self._pkg_btn.configure(state="disabled")
-        self._pkg_status.configure(text="Installing\u2026", fg=_YELLOW)
+        state = {"pct": 0.0, "target": 2.0, "msg": "Starting\u2026", "done": False}
 
-        def _thread():
-            try:
-                subprocess.run(
-                    cmd, check=True, capture_output=True, text=True,
-                    timeout=120,
-                )
-                self.after(0, lambda: self._pkg_status.configure(
-                    text="\u2713 Installed", fg=_GREEN))
-            except Exception as e:
-                msg = str(e)[:60]
-                self.after(0, lambda: self._pkg_status.configure(
-                    text=f"\u2717 Failed: {msg}", fg=_RED))
-            finally:
-                self.after(0, lambda: self._pkg_btn.configure(state="normal"))
-
-        threading.Thread(target=_thread, daemon=True).start()
-
-    def _install_tesseract(self):
-        self._tess_btn.configure(state="disabled")
-        self._tess_status.configure(text="Downloading\u2026", fg=_YELLOW)
-        self._tess_progress.pack(fill="x")
-        self._tess_progress_label.pack(anchor="w", pady=(4, 0))
-        self._tess_progress["value"] = 0
-
-        def _update_progress(downloaded, total):
-            if total > 0:
-                pct = downloaded / total * 100
-                mb_dl = downloaded / (1024 * 1024)
-                mb_tot = total / (1024 * 1024)
-                txt = f"{mb_dl:.1f} / {mb_tot:.1f} MB  ({pct:.0f}%)"
-                self.after(0, lambda p=pct, t=txt: (
-                    self._tess_progress.configure(value=p),
-                    self._tess_progress_label.configure(text=t),
-                ))
-            else:
-                mb_dl = downloaded / (1024 * 1024)
-                txt = f"{mb_dl:.1f} MB downloaded\u2026"
-                self.after(0, lambda t=txt: (
-                    self._tess_progress.configure(mode="indeterminate"),
-                    self._tess_progress_label.configure(text=t),
-                ))
-
-        def _thread():
-            try:
-                tmp = os.path.join(
-                    tempfile.gettempdir(), "tesseract_setup.exe"
-                )
-                req = urllib.request.urlopen(_TESSERACT_URL, timeout=60)
-                total = int(req.headers.get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 64 * 1024
-
-                with open(tmp, "wb") as f:
-                    while True:
-                        chunk = req.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        _update_progress(downloaded, total)
-
-                self.after(0, lambda: self._tess_progress.configure(value=100))
-                self.after(0, lambda: self._tess_status.configure(
-                    text="Running installer\u2026", fg=_YELLOW))
-                self.after(0, lambda: self._tess_progress_label.configure(
-                    text="The installer window may appear behind this one."))
-
-                result = subprocess.run(
-                    [tmp, "/S"],
-                    capture_output=True, text=True, timeout=300,
-                )
-
-                if result.returncode == 0:
-                    self.after(0, lambda: self._tess_status.configure(
-                        text="\u2713 Installed \u2014 click Re-check",
-                        fg=_GREEN,
+        def _animator():
+            while not state["done"]:
+                if state["pct"] < state["target"]:
+                    diff = state["target"] - state["pct"]
+                    step = max(0.05, diff * 0.05)
+                    state["pct"] = min(state["pct"] + step, state["target"])
+                    pct = state["pct"]
+                    msg = state["msg"]
+                    self.after(0, lambda p=pct, t=f"{msg} ({int(pct)}%)": (
+                        prog_var.set(p),
+                        status_lbl.configure(text=t, fg=_YELLOW),
                     ))
-                    self.after(0, lambda: self._tess_progress_label.configure(
-                        text="Tesseract installed. Click Re-check to verify.",
+                time.sleep(0.15)
+
+        threading.Thread(target=_animator, daemon=True).start()
+
+        def _on_done():
+            state["done"] = True
+            self.after(0, lambda: (
+                prog_var.set(100),
+                status_lbl.configure(
+                    text="\u2713 Done! Click Re-check to continue.", fg=_GREEN),
+                self._pkg_btn.configure(state="normal"),
+            ))
+
+        def _on_error(msg):
+            state["done"] = True
+            self.after(0, lambda m=msg: (
+                status_lbl.configure(text=f"\u2717 {m}", fg=_RED),
+                self._pkg_btn.configure(state="normal"),
+            ))
+
+        threading.Thread(
+            target=_pip_run_with_progress,
+            args=(
+                [sys.executable, "-m", "pip", "install"] + packages,
+                lambda t: state.update({"target": max(state["target"], t)}),
+                lambda m: state.update({"msg": m}),
+                _on_done,
+                _on_error,
+            ),
+            daemon=True,
+        ).start()
+
+    def _install_easyocr(self, prog_var, status_lbl):
+        self._ocr_btn.configure(state="disabled")
+        state = {"pct": 0.0, "target": 1.0, "msg": "Preparing\u2026", "done": False}
+
+        def _animator():
+            while not state["done"]:
+                if state["pct"] < state["target"]:
+                    diff = state["target"] - state["pct"]
+                    step = max(0.05, diff * 0.04)
+                    state["pct"] = min(state["pct"] + step, state["target"])
+                    pct = state["pct"]
+                    msg = state["msg"]
+                    self.after(0, lambda p=pct, t=f"{msg} ({int(pct)}%)": (
+                        prog_var.set(p),
+                        status_lbl.configure(text=t, fg=_YELLOW),
                     ))
+                time.sleep(0.15)
+
+        threading.Thread(target=_animator, daemon=True).start()
+
+        def set_target(t):
+            state["target"] = max(state["target"], t)
+
+        def set_msg(m):
+            state["msg"] = m
+
+        def _run():
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
+                capture_output=True, creationflags=_NO_WINDOW,
+            )
+            set_target(3)
+            set_msg("Installing PyTorch (CPU)\u2026")
+            torch_error = [None]
+            _pip_run_with_progress(
+                [
+                    sys.executable, "-m", "pip", "install",
+                    "--index-url", "https://download.pytorch.org/whl/cpu",
+                    "torch", "torchvision",
+                ],
+                lambda t: set_target(3 + t * 0.55),
+                set_msg,
+                lambda: None,
+                lambda e: torch_error.__setitem__(0, e),
+            )
+            if torch_error[0]:
+                _on_error(torch_error[0])
+                return
+            set_target(60)
+            set_msg("Installing EasyOCR\u2026")
+            def _on_done():
+                state["done"] = True
+                self.after(0, lambda: (
+                    prog_var.set(100),
+                    status_lbl.configure(
+                        text="\u2713 Done! Click Re-check to continue.", fg=_GREEN),
+                    self._ocr_btn.configure(state="normal"),
+                ))
+            def _on_error(msg):
+                state["done"] = True
+                if "WinError 5" in msg or "Access is denied" in msg:
+                    display = (
+                        "Permission denied. Try running the bot as Administrator "
+                        "(right-click \u2192 Run as administrator)."
+                    )
                 else:
-                    self.after(0, lambda: self._tess_status.configure(
-                        text="Installer finished (click Re-check)", fg=_YELLOW,
-                    ))
-                    self.after(0, lambda: self._tess_progress_label.configure(
-                        text="Click Re-check to verify.",
-                    ))
-
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-
-            except Exception as e:
-                err = str(e)[:80]
-                self.after(0, lambda: self._tess_status.configure(
-                    text=f"\u2717 {err}", fg=_RED))
-                self.after(0, lambda: self._tess_progress_label.configure(
-                    text="Try: winget install UB-Mannheim.TesseractOCR",
+                    display = msg or "Installation failed. Check your internet connection."
+                self.after(0, lambda m=display: (
+                    status_lbl.configure(text=f"\u2717 {m}", fg=_RED),
+                    self._ocr_btn.configure(state="normal"),
                 ))
-            finally:
-                self.after(0, lambda: self._tess_btn.configure(state="normal"))
+            _pip_run_with_progress(
+                [sys.executable, "-m", "pip", "install",
+                 "easyocr", "rapidfuzz"],
+                lambda t: set_target(60 + t * 0.40),
+                set_msg,
+                _on_done,
+                _on_error,
+            )
 
-        threading.Thread(target=_thread, daemon=True).start()
+        threading.Thread(target=_run, daemon=True).start()
 
     def _capture_templates(self):
         tool_path = os.path.join("tools", "capture_templates.py")
@@ -449,14 +498,14 @@ class PrerequisiteDialog(tk.Toplevel):
     def _recheck(self):
         new_issues = check_prerequisites()
         has_problems = (
-            new_issues["python_packages"]
-            or new_issues["tesseract"]
+            new_issues.get("python_version")
+            or new_issues["python_packages"]
+            or new_issues["easyocr"]
             or new_issues["templates"]
         )
         if not has_problems:
             for w in self._content.winfo_children():
                 w.destroy()
-
             success_frame = tk.Frame(self._content, bg=_BG)
             success_frame.pack(fill="both", expand=True, pady=40)
             tk.Label(
@@ -467,7 +516,6 @@ class PrerequisiteDialog(tk.Toplevel):
                 success_frame, text="All prerequisites met!",
                 font=("Segoe UI Semibold", 14), bg=_BG, fg=_GREEN,
             ).pack(pady=(8, 0))
-
             self.result = "ok"
             self.after(1200, self.destroy)
         else:
@@ -483,8 +531,9 @@ class PrerequisiteDialog(tk.Toplevel):
 if __name__ == "__main__":
     issues = check_prerequisites()
     has_problems = (
-        issues["python_packages"]
-        or issues["tesseract"]
+        issues.get("python_version")
+        or issues["python_packages"]
+        or issues["easyocr"]
         or issues["templates"]
     )
     if has_problems:

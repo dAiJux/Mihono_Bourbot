@@ -54,6 +54,13 @@ class TrainingMixin:
             screenshot = self.vision.take_screenshot()
             screen = self.vision.detect_screen(screenshot)
 
+            race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
+            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
+                self.logger.info("Scheduled race popup appeared after Training click — launching race instead")
+                self.click_with_offset(*race_popup)
+                self.wait(1.5)
+                return None
+
         if screen == GameScreen.EVENT:
             self.logger.info("Event appeared after clicking training — handling")
             self.handle_event(self._event_db)
@@ -63,6 +70,14 @@ class TrainingMixin:
 
         if screen != GameScreen.TRAINING:
             self.logger.warning(f"Not on training screen ({screen.value}), attempting navigation")
+
+            race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
+            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
+                self.logger.info("Scheduled race popup detected mid-training — launching race")
+                self.click_with_offset(*race_popup)
+                self.wait(1.5)
+                return None
+
             if self.click_button("btn_training", screenshot):
                 self.wait(1.0)
                 screenshot = self.vision.take_screenshot()
@@ -188,6 +203,17 @@ class TrainingMixin:
         self.wait(0.5)
         return None
 
+    def _handle_scheduled_race_popup(self) -> bool:
+        screenshot = self.vision.take_screenshot()
+        cancel_pos = self.vision.find_template("btn_cancel", screenshot, threshold=0.75)
+        ok_pos = self.vision.find_template("btn_ok", screenshot, threshold=0.75)
+        if cancel_pos and ok_pos:
+            self.logger.info("Scheduled race conflict popup — clicking Cancel to preserve race")
+            self.click_with_offset(*cancel_pos)
+            self.wait(0.8)
+            return True
+        return False
+
     def execute_rest_action(self):
         self.logger.info("Executing REST action...")
         screenshot = self.vision.take_screenshot()
@@ -202,8 +228,8 @@ class TrainingMixin:
                 self.logger.error("Cannot find Rest button")
                 return
         self.wait(0.5)
-        self.click_button(rest_btn)
-        self.wait(0.5)
+        if self._handle_scheduled_race_popup():
+            return
         self._handle_claw_machine()
 
     def _handle_claw_machine(self):
@@ -245,11 +271,9 @@ class TrainingMixin:
         if not self.vision.detect_injury(screenshot):
             self.logger.warning("Infirmary action requested but no injury detected — skipping")
             return
-        if not self.click_button("btn_infirmary_on", screenshot):
+        if not self.click_button("btn_infirmary", screenshot):
             self.logger.error("Cannot find Infirmary button")
             return
-        self.wait(0.5)
-        self.click_button("btn_infirmary_on")
         self.wait(0.5)
 
     def execute_recreation_action(self):
@@ -259,8 +283,7 @@ class TrainingMixin:
             self.logger.error("Cannot find Recreation button")
             return
         self.wait(0.5)
-        self.click_button("btn_recreation")
-        self.wait(0.5)
+        self._handle_scheduled_race_popup()
 
     def execute_rainbow_training(self):
         self.logger.info("Executing RAINBOW TRAINING action...")

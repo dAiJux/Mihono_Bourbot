@@ -1,68 +1,31 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes are documented here.
 
 ---
 
-## [1.0.0] - 2025-02-18
+## [1.0.0] — 2026-02-24
 
 ### Added
+- Window-only interaction via `PostMessage` (mouse/keyboard unaffected)
+- GUI launcher (tkinter) for stat targets, priorities, thresholds, scenario
+- 6-level priority decision tree: Race › Infirmary › Rest › Recreation › Training
+- Multi-run support with queue management
+- Unity Cup scenario: spirit bursts, unity matches, final round
+- URA scenario: standard race flow
+- OCR via EasyOCR (Speed, Stamina, Power, Guts, Wit, energy, mood)
+- Template matching for buttons, icons, race days, injury, rainbow training
+- Friendship tracking (icon count, support bars)
+- Event database with 500+ entries (game8.co), optimal choice selection
+- Emergency stop (F12), pause/resume
+- Anti-detection: random offsets, variable delays
+- **Skill system** (`scripts/automation/skills.py`): auto-navigate to skill screen, scroll full list, OCR skill names with gradient-based cluster detection, fuzzy-match against configurable wishlist (515 skills), confirm purchase
+- **`GameScreen.SKILL_SELECT`** state and `btn_skills` template for skill screen detection
+- **`RACE_RESULT`** screen state — `btn_tap` / `btn_race_next_finish` correctly identified
+- **`STRATEGY`** screen state — strategy popup detected before `SKILL_SELECT` to avoid `confirm_btn` collision
+- **Visual debug diagnostics** (`D` key): multi-mask sweep, per-screen button isolation
+- Tools: `tools/capture_templates.py`, `tools/visual_debug.py`, `tools/build_exe.py`, `tools/scrape_events.py`, `tools/calibrate_positions.py`
 
-#### Core Features
-- **Window-only interaction** using `pywin32` `PostMessage` clicks (mouse/keyboard unaffected)
-- **GUI launcher** (tkinter) for configuring stat targets, priorities, thresholds, and scenario
-- **6-level priority decision tree**: Race › Infirmary › Rainbow › Rest › Recreation › Training
-- **Multi-run support** with queue management from GUI
-
-#### Scenarios
-- **Unity Cup scenario** with full support for:
-  - Spirit bursts (white/blue)
-  - Unity matches
-  - Final round flow
-- **URA scenario** with standard race flow
-
-#### Vision & Detection
-- **OCR stat reading** (Speed, Stamina, Power, Wit, Guts, energy %, mood)
-- **Template matching** for buttons, icons, race days, injury markers, rainbow training
-- **Friendship tracking** (counts icons & support bars)
-- **Card type detection** (Speed/Stamina/Power/Wit/Guts/Friend)
-- **Goal & scheduled race detection**
-
-#### Events
-- **Event database** with 500+ events scraped from game8.co
-- **Optimal choice selection** based on event matching
-- **Fallback keyword patterns** for unknown events
-- **Event scraper tool** (`tools/scrape_events.py`)
-
-#### Safety & Control
-- **Emergency stop** (default: F12, configurable)
-- **Pause / Resume** functionality
-- **Anti-ban measures**: random click offsets, variable delays, human-like pauses
-
-#### Tools & Utilities
-- **Template capture tool** (`tools/capture_templates.py`) - interactive UI element capture
-- **Vision test mode** (GUI or CLI) - continuous recognition test
-- **PyInstaller build script** (`tools/build_exe.py`) - standalone .exe packaging
-- **Quick presets** (Sprint/Mile/Medium/Long stat configurations)
-- **Prerequisite checker** (Python packages, Tesseract, templates)
-
-#### Architecture
-- **Modular package structure** with mixin pattern:
-  - `scripts/vision/` - capture, OCR, template matching
-  - `scripts/automation/` - clicks, race/training flow
-  - `scripts/decision/` - priority engine, event handling
-  - `scripts/gui/` - tkinter interface
-- **Template organization** by game screen (main_screen, training, race, events, unity, status, common)
-
----
-
-## [Unreleased]
-
-### Planned
-- MANT Scenario
-- Skills management
-- Training optimization
-- Improved GUI
+### Notes
+- Tesseract removed — EasyOCR used exclusively
+- Project structured into `scripts/automation`, `scripts/decision`, `scripts/gui`, `scripts/vision`

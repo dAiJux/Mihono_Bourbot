@@ -22,7 +22,7 @@ from scripts.gui.config import REQUIRED_TEMPLATES
 TEMPLATES_DIR = "templates"
 
 _MAIN_SCREEN = {"btn_training", "btn_rest", "btn_rest_summer", "btn_recreation",
-                "btn_races", "btn_infirmary_off", "btn_infirmary_on", "btn_inspiration"}
+                "btn_races", "btn_infirmary", "btn_inspiration"}
 _RACE = {"btn_race", "btn_race_confirm", "btn_race_launch", "btn_race_start",
          "btn_race_start_ura", "btn_race_next_finish", "btn_change_strategy",
          "strategy_front", "strategy_pace", "strategy_late", "strategy_end",

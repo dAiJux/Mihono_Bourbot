@@ -157,6 +157,10 @@ class MihonoBourbot:
                     self.logger.info("Run finished — Complete Career reached")
                     break
 
+                if self.automation.should_check_skills(self.turn_count):
+                    self.logger.info("Skill check triggered")
+                    self.automation.execute_skill_check(self.turn_count)
+
                 if action == Action.SKIP:
                     skip_retries += 1
                     self.automation.advance_turn()

@@ -1,9 +1,42 @@
 import cv2
 import numpy as np
-import pytesseract
+import warnings
+import easyocr as _easyocr
 from collections import Counter
 from typing import Tuple, Optional, List, Dict
 from pathlib import Path
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*pin_memory.*no accelerator.*",
+    category=UserWarning,
+    module="torch",
+)
+
+_reader = None
+
+def _get_reader():
+    global _reader
+    if _reader is None:
+        _reader = _easyocr.Reader(['en'], gpu=False, verbose=False)
+    return _reader
+
+
+def _ocr_digits(img_np: np.ndarray) -> str:
+    reader = _get_reader()
+    results = reader.readtext(img_np, allowlist='0123456789', text_threshold=0.3)
+    if not results:
+        return ''
+    results.sort(key=lambda r: r[0][0][0])
+    return results[0][1]
+
+
+def _ocr_text_raw(img_np: np.ndarray) -> str:
+    reader = _get_reader()
+    results = reader.readtext(img_np, text_threshold=0.3)
+    results.sort(key=lambda r: r[0][0][1])
+    return ' '.join(r[1] for r in results)
+
 
 class OcrMixin:
 
@@ -58,10 +91,15 @@ class OcrMixin:
         roi = screenshot[y:y+rh, x:x+rw]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
+        scale = 3
+        big = cv2.resize(thresh, (thresh.shape[1] * scale, thresh.shape[0] * scale),
+                         interpolation=cv2.INTER_CUBIC)
         try:
-            text = pytesseract.image_to_string(thresh, config='--psm 7 -c tessedit_char_whitelist=0123456789')
-            val = text.strip()
-            return int(val) if val.isdigit() else 0
+            digits = _ocr_digits(big)
+            digits = digits.strip()
+            if digits.isdigit():
+                return int(digits)
+            return 0
         except Exception:
             return 0
 
@@ -163,8 +201,8 @@ class OcrMixin:
             gray = cv2.cvtColor(title_roi, cv2.COLOR_BGR2GRAY)
             _, thresh_light = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
             _, thresh_dark = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-            text_light = pytesseract.image_to_string(thresh_light, config='--psm 7').strip()
-            text_dark = pytesseract.image_to_string(thresh_dark, config='--psm 7').strip()
+            text_light = _ocr_text_raw(thresh_light).strip()
+            text_dark = _ocr_text_raw(thresh_dark).strip()
             title = text_light if len(text_light) > len(text_dark) else text_dark
             self.logger.debug(f"Event title OCR: '{title}'")
             return title
@@ -176,10 +214,10 @@ class OcrMixin:
             screenshot = self.take_screenshot()
         gx, gy, gw, gh = self.get_game_rect(screenshot)
         dd = self._calibration.get("date_display", {})
-        y1 = gy + int(gh * dd.get("y1", 0.005))
-        y2 = gy + int(gh * dd.get("y2", 0.035))
-        x1 = gx + int(gw * dd.get("x1", 0.02))
-        x2 = gx + int(gw * dd.get("x2", 0.55))
+        y1 = gy + int(gh * dd.get("y1", 0.025))
+        y2 = gy + int(gh * dd.get("y2", 0.060))
+        x1 = gx + int(gw * dd.get("x1", 0.15))
+        x2 = gx + int(gw * dd.get("x2", 0.85))
         roi = screenshot[y1:y2, x1:x2]
         if roi.size == 0:
             return None
@@ -187,15 +225,32 @@ class OcrMixin:
             Path("logs/debug").mkdir(parents=True, exist_ok=True)
             cv2.imwrite("logs/debug/date_display_roi.png", roi)
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-            text = pytesseract.image_to_string(thresh, config='--psm 7').strip().lower()
-            self.logger.debug(f"Date OCR raw: '{text}'")
-            return self._parse_game_date(text)
+            scale = 3
+            best_text = ""
+            for thresh_val, inv in [(160, False), (200, False), (160, True), (120, False)]:
+                mode = cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY
+                _, thresh = cv2.threshold(gray, thresh_val, 255, mode)
+                big = cv2.resize(thresh, (thresh.shape[1] * scale, thresh.shape[0] * scale),
+                                 interpolation=cv2.INTER_CUBIC)
+                big = cv2.copyMakeBorder(big, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=0 if inv else 255)
+                candidate = _ocr_text_raw(big).strip().lower()
+                if len(candidate) > len(best_text):
+                    best_text = candidate
+            self.logger.debug(f"Date OCR raw: '{best_text}'")
+            result = self._parse_game_date(best_text)
+            if result is None:
+                _, otsu_thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                big_otsu = cv2.resize(otsu_thresh, (otsu_thresh.shape[1] * scale, otsu_thresh.shape[0] * scale),
+                                      interpolation=cv2.INTER_CUBIC)
+                otsu_text = _ocr_text_raw(big_otsu).strip().lower()
+                self.logger.debug(f"Date OCR OTSU: '{otsu_text}'")
+                result = self._parse_game_date(otsu_text)
+            return result
         except Exception:
             return None
 
     def _parse_game_date(self, text: str) -> Optional[Dict]:
-        text = text.replace(",", " ").replace(".", " ").strip()
+        text = text.replace(",", " ").replace(".", " ").replace("-", " ").strip()
         if "finale" in text or "final" in text:
             result = {"year": "finale", "half": "", "month": "", "turn": 73}
             self.logger.debug(f"Parsed date: {result} (finale detected)")
@@ -205,6 +260,10 @@ class OcrMixin:
             if y in text:
                 year = y
                 break
+        if year and ("pre" in text or "debut" in text):
+            result = {"year": year, "half": "pre-debut", "month": "", "turn": 0}
+            self.logger.debug(f"Parsed date: {result} (pre-debut detected)")
+            return result
         half = None
         for h in ("early", "late"):
             if h in text:
@@ -264,8 +323,8 @@ class OcrMixin:
             _, thresh_light = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
             _, thresh_dark = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
 
-            text_light = pytesseract.image_to_string(thresh_light, config='--psm 6').strip()
-            text_dark = pytesseract.image_to_string(thresh_dark, config='--psm 6').strip()
+            text_light = _ocr_text_raw(thresh_light).strip()
+            text_dark = _ocr_text_raw(thresh_dark).strip()
 
             text = text_light if len(text_light) > len(text_dark) else text_dark
             self.logger.debug(f"Event OCR ({len(text)} chars): {text[:120]}")
@@ -288,7 +347,7 @@ class OcrMixin:
             try:
                 gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
                 _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
-                text = pytesseract.image_to_string(thresh, config='--psm 7').strip()
+                text = _ocr_text_raw(thresh).strip()
                 texts.append(text)
             except Exception:
                 texts.append("")
@@ -304,7 +363,6 @@ class OcrMixin:
             return None
 
         gray = cv2.cvtColor(bar, cv2.COLOR_BGR2GRAY)
-        _, binary = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
 
         stats: Dict[str, int] = {}
         try:
@@ -312,22 +370,29 @@ class OcrMixin:
                 cx1 = int(gw * frac_x1)
                 cx2 = int(gw * frac_x2)
                 col_w = cx2 - cx1
+                right_guard = max(5, int(col_w * 0.15))
 
                 candidates: list = []
-                for margin_pct in (0, 5, 15):
-                    m = max(1, int(col_w * margin_pct / 100))
-                    roi = binary[:, cx1 + m:cx2 - m]
-                    if roi.size == 0:
-                        continue
-                    scale = 4
-                    big = cv2.resize(roi,
-                                     (roi.shape[1] * scale, roi.shape[0] * scale),
-                                     interpolation=cv2.INTER_CUBIC)
-                    big = cv2.copyMakeBorder(big, 15, 15, 20, 20,
-                                             cv2.BORDER_CONSTANT, value=0)
-                    val = self._ocr_stat_column(big)
-                    if val is not None:
-                        candidates.append(val)
+                for thresh in (170, 190, 210):
+                    _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
+                    for left_pct in (0, 5, 10):
+                        left_m = max(1, int(col_w * left_pct / 100))
+                        x_start = cx1 + left_m
+                        x_end = cx2 - right_guard
+                        if x_end <= x_start:
+                            continue
+                        roi = binary[:, x_start:x_end]
+                        if roi.size == 0:
+                            continue
+                        scale = 4
+                        big = cv2.resize(roi,
+                                         (roi.shape[1] * scale, roi.shape[0] * scale),
+                                         interpolation=cv2.INTER_CUBIC)
+                        big = cv2.copyMakeBorder(big, 15, 15, 20, 20,
+                                                 cv2.BORDER_CONSTANT, value=0)
+                        val = self._ocr_stat_column(big)
+                        if val is not None:
+                            candidates.append(val)
 
                 if candidates:
                     best = Counter(candidates).most_common(1)[0][0]
@@ -348,19 +413,30 @@ class OcrMixin:
 
     @staticmethod
     def _ocr_stat_column(img: np.ndarray) -> Optional[int]:
-        for psm in (13, 7, 8):
-            raw = pytesseract.image_to_string(
-                img,
-                config=f'--psm {psm} '
-                       f'-c tessedit_char_whitelist=0123456789')
-            digits = raw.strip().replace(' ', '').replace('\n', '')
-            if not digits:
-                continue
-            for length in range(min(4, len(digits)), 0, -1):
-                s = digits[:length]
-                if s[0] == '0' and length > 1:
+        reader = _get_reader()
+        candidates: list = []
+        for min_conf in (0.6, 0.45, 0.3):
+            try:
+                results = reader.readtext(img, detail=1, allowlist="0123456789")
+                if not results:
                     continue
-                v = int(s)
-                if v <= 1200:
-                    return v
-        return None
+                results_filtered = [(text, conf) for (_, text, conf) in results if conf >= min_conf]
+                if not results_filtered:
+                    continue
+                best_text, _ = max(results_filtered, key=lambda x: x[1])
+                digits = best_text.strip()
+                if not digits:
+                    continue
+                for length in range(min(3, len(digits)), 0, -1):
+                    s = digits[:length]
+                    if s[0] == "0" and length > 1:
+                        continue
+                    v = int(s)
+                    if 1 <= v <= 1200:
+                        candidates.append(v)
+                        break
+            except Exception:
+                continue
+        if not candidates:
+            return None
+        return Counter(candidates).most_common(1)[0][0]

@@ -12,7 +12,6 @@ class DetectionMixin:
         mask = np.ones((h, w), dtype=np.uint8) * 255
         
         mask_percentages = {
-            "btn_races": 0.70,
             "btn_race_next_finish": 0.65,
             "complete_career": 0.65,
             "btn_training": 0.50,
@@ -28,6 +27,15 @@ class DetectionMixin:
     def detect_screen(self, screenshot: np.ndarray = None) -> GameScreen:
         if screenshot is None:
             screenshot = self.take_screenshot()
+
+        if self.find_template("buy_skill", screenshot, 0.82) or \
+           self.find_template("learn_btn", screenshot, 0.72) or \
+           self.find_template("confirm_btn", screenshot, 0.72):
+            return GameScreen.SKILL_SELECT
+
+        for tpl, thr in [("btn_race_start", 0.70), ("btn_race_start_ura", 0.70)]:
+            if self.find_template(tpl, screenshot, thr):
+                return GameScreen.RACE
 
         if self.find_template("btn_race", screenshot, 0.80):
             if not self.find_template("btn_race_launch", screenshot, 0.75):
@@ -91,17 +99,11 @@ class DetectionMixin:
         if self.detect_event_type(screenshot):
             return GameScreen.EVENT
 
-        for tpl, thr in [("btn_race_start", 0.75), ("btn_race_start_ura", 0.75),
-                         ("race_view_results_on", 0.85), ("race_view_results_off", 0.75),
-                         ("btn_change_strategy", 0.75)]:
-            if self.find_template(tpl, screenshot, thr):
-                return GameScreen.RACE
-
         self.logger.debug("Screen detected: UNKNOWN")
         return GameScreen.UNKNOWN
 
     _BRIGHTNESS_GATED_TEMPLATES = {
-        "btn_infirmary_on": 189,
+        "btn_infirmary": 189,
     }
 
     def _check_brightness_gate(self, template_name, search_img, match_loc, templ_shape):
@@ -358,8 +360,8 @@ class DetectionMixin:
     def detect_race_day(self, screenshot: Optional[np.ndarray] = None) -> bool:
         if screenshot is None:
             screenshot = self.take_screenshot()
-        return (self.find_template("btn_race_start", screenshot, 0.75) is not None or
-                self.find_template("btn_race_start_ura", screenshot, 0.75) is not None)
+        return (self.find_template("btn_race_start", screenshot, 0.70) is not None or
+                self.find_template("btn_race_start_ura", screenshot, 0.70) is not None)
 
     def detect_target_race(self, screenshot: np.ndarray) -> bool:
         return self.find_template("target_race", screenshot, 0.8) is not None
@@ -400,8 +402,17 @@ class DetectionMixin:
                 cy = y1 + by + bh // 2
                 opponents.append((cx, cy))
         opponents.sort(key=lambda p: p[1])
-        self.logger.debug(f"Unity opponents detected: {len(opponents)} at {opponents}")
-        return opponents
+
+        merged: List[Tuple[int, int]] = []
+        for pt in opponents:
+            if merged and abs(pt[1] - merged[-1][1]) < 80:
+                prev = merged[-1]
+                merged[-1] = ((prev[0] + pt[0]) // 2, (prev[1] + pt[1]) // 2)
+            else:
+                merged.append(pt)
+
+        self.logger.debug(f"Unity opponents detected: {len(merged)} cards at {merged} (raw: {len(opponents)})")
+        return merged
 
     def detect_gold_skill(self, screenshot: Optional[np.ndarray] = None) -> List[Tuple[int, int]]:
         if screenshot is None:
@@ -422,19 +433,16 @@ class DetectionMixin:
 
     def detect_injury(self, screenshot: np.ndarray) -> bool:
         self._update_scale(screenshot)
-        t_on  = self._get_scaled_template("btn_infirmary_on")
-        t_off = self._get_scaled_template("btn_infirmary_off")
-        if t_on is None or t_off is None:
+        t_on = self._get_scaled_template("btn_infirmary")
+        if t_on is None:
             return False
 
-        search, ox, oy = self._get_search_area("btn_infirmary_on", screenshot)
+        search, ox, oy = self._get_search_area("btn_infirmary", screenshot)
         if search is None or search.shape[0] < t_on.shape[0] or search.shape[1] < t_on.shape[1]:
             return False
 
-        r_on  = cv2.matchTemplate(search, t_on,  cv2.TM_CCOEFF_NORMED)
-        r_off = cv2.matchTemplate(search, t_off, cv2.TM_CCOEFF_NORMED)
-        _, mv_on,  _, ml_on  = cv2.minMaxLoc(r_on)
-        _, mv_off, _, ml_off = cv2.minMaxLoc(r_off)
+        res = cv2.matchTemplate(search, t_on, cv2.TM_CCOEFF_NORMED)
+        _, mv_on, _, ml_on = cv2.minMaxLoc(res)
 
         if mv_on < 0.60:
             self.logger.debug(f"Infirmary: score ON too low ({mv_on:.3f}) → NO INJURY")
@@ -442,19 +450,23 @@ class DetectionMixin:
 
         th, tw = t_on.shape[:2]
         x1, y1 = ml_on
-        roi = search[y1:y1+th, x1:x1+tw]
+        roi = search[y1:y1 + th, x1:x1 + tw]
         if roi.size == 0:
             return False
 
-        avg_v = float(np.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)[:, :, 2]))
-        ref_v_on  = float(np.mean(cv2.cvtColor(t_on,  cv2.COLOR_BGR2HSV)[:, :, 2]))
-        ref_v_off = float(np.mean(cv2.cvtColor(t_off, cv2.COLOR_BGR2HSV)[:, :, 2]))
-        gate = (ref_v_on + ref_v_off) / 2.0
+        ref_brightness = float(np.mean(cv2.cvtColor(t_on, cv2.COLOR_BGR2GRAY)))
+        roi_brightness = float(np.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)))
 
-        injury = avg_v >= gate
+        if ref_brightness == 0:
+            return False
+
+        brightness_diff = abs(roi_brightness - ref_brightness) / ref_brightness
+        injury = brightness_diff <= 0.15
+
         self.logger.debug(
-            f"Infirmary — ON: {mv_on:.3f}, OFF: {mv_off:.3f}, "
-            f"V={avg_v:.0f} gate={gate:.0f} → {'INJURY' if injury else 'NO INJURY (button OFF)'}"
+            f"Infirmary — score={mv_on:.3f}, "
+            f"ref={ref_brightness:.1f}, roi={roi_brightness:.1f}, "
+            f"diff={brightness_diff:.3f} → {'INJURY' if injury else 'NO INJURY (button OFF)'}"
         )
         return injury
 
@@ -563,4 +575,3 @@ class DetectionMixin:
             return None
 
         return self.find_template("btn_race_confirm", screenshot, 0.65)
-    

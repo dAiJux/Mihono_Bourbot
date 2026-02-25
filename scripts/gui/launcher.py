@@ -21,10 +21,10 @@ if __name__ == "__main__" or __package__ is None:
     os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
     from scripts.gui.config import CONFIG_PATH, DEFAULT_CONFIG, REQUIRED_TEMPLATES
-    from scripts.gui.prereqs import _find_tesseract, check_prerequisites, PrerequisiteDialog
+    from scripts.gui.prereqs import _check_easyocr, check_prerequisites, PrerequisiteDialog
 else:
     from .config import CONFIG_PATH, DEFAULT_CONFIG, REQUIRED_TEMPLATES
-    from .prereqs import _find_tesseract, check_prerequisites, PrerequisiteDialog
+    from .prereqs import _check_easyocr, check_prerequisites, PrerequisiteDialog
 
 class _GuiLogHandler(logging.Handler):
 
@@ -54,21 +54,22 @@ class BotLauncher(tk.Tk):
     BORDER    = "#393952"
 
     def __init__(self):
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
         super().__init__()
+        self.withdraw()
         my_app_id = 'Bourbot.Mihono.Automation.1.0.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
         self.title("Mihono Bourbot")
         self.geometry("860x900")
         self.resizable(False, True)
         self.configure(bg=self.BG)
-
-        try:
-            icon_path = get_resource_path(os.path.join("assets", "logo.ico"))
-            if os.path.exists(icon_path):
-                self.iconbitmap(icon_path)
-        except Exception as e:
-            print(f"[WARN] Erreur icône : {e}")
-        
+        self._apply_icon()
         self.config_data = self._load_config()
         self.bot_thread = None
         self.bot_running = False
@@ -77,8 +78,55 @@ class BotLauncher(tk.Tk):
         self._setup_styles()
         self._build_ui()
         self._update_status_bar()
-
+        self.update_idletasks()
+        self.deiconify()
         self.after(200, self._check_prerequisites_on_start)
+    def _apply_icon(self):
+        import tempfile
+        try:
+            from PIL import Image, ImageTk
+            ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
+            png_path = get_resource_path(os.path.join("assets", "logo.png"))
+            source_img = None
+            if os.path.exists(png_path):
+                source_img = Image.open(png_path).convert("RGBA")
+            elif os.path.exists(ico_path):
+                raw = Image.open(ico_path)
+                best_frame = raw.copy()
+                try:
+                    for i in range(getattr(raw, "n_frames", 1)):
+                        raw.seek(i)
+                        if raw.size[0] > best_frame.size[0]:
+                            best_frame = raw.copy()
+                except Exception:
+                    pass
+                source_img = best_frame.convert("RGBA")
+            if source_img is None:
+                return
+            gen_ico = tempfile.NamedTemporaryFile(suffix=".ico", delete=False)
+            gen_ico.close()
+            icon_sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+            frames = [source_img.resize(s, Image.LANCZOS) for s in icon_sizes]
+            frames[0].save(
+                gen_ico.name,
+                format="ICO",
+                sizes=icon_sizes,
+                append_images=frames[1:],
+            )
+            self.iconbitmap(default=gen_ico.name)
+            photo = ImageTk.PhotoImage(frames[-1])
+            self.iconphoto(True, photo)
+            self._icon_img = photo
+            self._gen_ico_path = gen_ico.name
+            return
+        except Exception:
+            pass
+        try:
+            ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
+            if os.path.exists(ico_path):
+                self.iconbitmap(default=ico_path)
+        except Exception:
+            pass
 
     def _setup_styles(self):
         style = ttk.Style(self)
@@ -153,8 +201,9 @@ class BotLauncher(tk.Tk):
     def _check_prerequisites_on_start(self):
         issues = check_prerequisites()
         has_problems = (
-            issues["python_packages"]
-            or issues["tesseract"]
+            issues.get("python_version")
+            or issues["python_packages"]
+            or issues["easyocr"]
             or issues["templates"]
         )
         if has_problems:
@@ -202,6 +251,10 @@ class BotLauncher(tk.Tk):
                 self.threshold_var.get()
             )
 
+            if hasattr(self, "skill_interval_var"):
+                cfg["skill_check_interval"] = int(self.skill_interval_var.get())
+            if hasattr(self, "_skill_wishlist"):
+                cfg["skill_wishlist"] = list(self._skill_wishlist)
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=4)
 
@@ -232,6 +285,10 @@ class BotLauncher(tk.Tk):
         tab_race = ttk.Frame(notebook)
         notebook.add(tab_race, text="  Race & Thresholds  ")
         self._build_race_tab(tab_race)
+
+        tab_skills = ttk.Frame(notebook)
+        notebook.add(tab_skills, text="  Skills  ")
+        self._build_skills_tab(tab_skills)
 
         tab_auto = ttk.Frame(notebook)
         notebook.add(tab_auto, text="  Automation & Safety  ")
@@ -469,6 +526,153 @@ class BotLauncher(tk.Tk):
         for p in priorities:
             ttk.Label(info, text=p).pack(anchor="w", padx=12, pady=2)
 
+    def _build_skills_tab(self, parent):
+        import json as _json
+        cfg = self.config_data
+        SKILLS_JSON = os.path.join("config", "skills.json")
+        all_skills = []
+        try:
+            with open(SKILLS_JSON, encoding="utf-8") as f:
+                all_skills = [s["name"] for s in _json.load(f)]
+        except Exception:
+            pass
+
+        top = ttk.LabelFrame(parent, text="Skill Buying")
+        top.pack(fill="x", padx=12, pady=(10, 6))
+        ttk.Label(
+            top,
+            text=(
+                "The bot will attempt to buy skills from this wishlist every N training turns.\n"
+                "Skills are matched by fuzzy name — minor OCR differences are tolerated."
+            ),
+            style="Dim.TLabel",
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+        interval_row = ttk.Frame(top)
+        interval_row.pack(anchor="w", padx=10, pady=(2, 8))
+        ttk.Label(interval_row, text="Check every N turns:").pack(side="left")
+        self.skill_interval_var = tk.StringVar(
+            value=str(cfg.get("skill_check_interval", 8))
+        )
+        ttk.Spinbox(
+            interval_row, from_=1, to=50, width=6,
+            textvariable=self.skill_interval_var,
+        ).pack(side="left", padx=(6, 0))
+
+        body = tk.Frame(parent, bg=self.BG)
+        body.pack(fill="both", expand=True, padx=12, pady=4)
+
+        left_frame = tk.Frame(body, bg=self.BG)
+        left_frame.pack(side="left", fill="both", expand=True)
+
+        mid_frame = tk.Frame(body, bg=self.BG, width=110)
+        mid_frame.pack(side="left", fill="y", padx=8)
+        mid_frame.pack_propagate(False)
+
+        right_frame = tk.Frame(body, bg=self.BG)
+        right_frame.pack(side="left", fill="both", expand=True)
+
+        tk.Label(
+            left_frame,
+            text=f"Available Skills ({len(all_skills)})",
+            font=("Segoe UI Semibold", 10),
+            bg=self.BG, fg=self.ACCENT,
+        ).pack(anchor="w", pady=(0, 2))
+
+        search_var = tk.StringVar()
+        ttk.Entry(left_frame, textvariable=search_var).pack(fill="x")
+        ttk.Label(left_frame, text="Search:", style="Dim.TLabel").pack(anchor="w")
+
+        avail_frame = tk.Frame(left_frame, bg=self.BG)
+        avail_frame.pack(fill="both", expand=True)
+        avail_listbox = tk.Listbox(
+            avail_frame, selectmode="extended", bg=self.BG_ALT,
+            fg=self.FG, selectbackground=self.ACCENT, selectforeground="#ffffff",
+            borderwidth=0, highlightthickness=1, highlightbackground=self.BORDER,
+            font=("Segoe UI", 10), activestyle="none",
+        )
+        avail_scroll = ttk.Scrollbar(avail_frame, command=avail_listbox.yview)
+        avail_listbox.configure(yscrollcommand=avail_scroll.set)
+        avail_scroll.pack(side="right", fill="y")
+        avail_listbox.pack(side="left", fill="both", expand=True)
+
+        btn_inner = tk.Frame(mid_frame, bg=self.BG)
+        btn_inner.place(relx=0.5, rely=0.5, anchor="center")
+        ttk.Button(btn_inner, text="Add →", width=10,
+                   command=lambda: _add_skills()).pack(pady=4)
+        ttk.Button(btn_inner, text="← Remove", width=10,
+                   command=lambda: _remove_skills()).pack(pady=4)
+        ttk.Button(btn_inner, text="Clear All", width=10,
+                   command=lambda: (
+                       self._skill_wishlist.clear(),
+                       _refresh_wish(),
+                       _update_cfg(),
+                   )).pack(pady=4)
+
+        tk.Label(
+            right_frame, text="Wishlist",
+            font=("Segoe UI Semibold", 10),
+            bg=self.BG, fg=self.ACCENT,
+        ).pack(anchor="w", pady=(0, 2))
+
+        wish_frame = tk.Frame(right_frame, bg=self.BG)
+        wish_frame.pack(fill="both", expand=True)
+        wish_listbox = tk.Listbox(
+            wish_frame, selectmode="extended", bg=self.BG_ALT,
+            fg=self.FG, selectbackground=self.ACCENT, selectforeground="#ffffff",
+            borderwidth=0, highlightthickness=1, highlightbackground=self.BORDER,
+            font=("Segoe UI", 10), activestyle="none",
+        )
+        wish_scroll = ttk.Scrollbar(wish_frame, command=wish_listbox.yview)
+        wish_listbox.configure(yscrollcommand=wish_scroll.set)
+        wish_scroll.pack(side="right", fill="y")
+        wish_listbox.pack(side="left", fill="both", expand=True)
+
+        tk.Label(
+            parent,
+            text="Double-click to remove  |  Double-click available list to add",
+            font=("Segoe UI", 8), bg=self.BG_ALT, fg=self.FG_DIM, anchor="w",
+        ).pack(fill="x", padx=12, pady=(2, 4))
+
+        self._skill_wishlist = list(cfg.get("skill_wishlist", []))
+        self._all_skills = all_skills
+
+        def _filtered():
+            q = search_var.get().lower()
+            return [s for s in self._all_skills if q in s.lower()] if q else self._all_skills
+
+        def _refresh_avail():
+            avail_listbox.delete(0, tk.END)
+            for s in _filtered():
+                avail_listbox.insert(tk.END, s)
+
+        def _refresh_wish():
+            wish_listbox.delete(0, tk.END)
+            for s in self._skill_wishlist:
+                wish_listbox.insert(tk.END, s)
+
+        def _update_cfg():
+            self.config_data["skill_wishlist"] = list(self._skill_wishlist)
+
+        def _add_skills():
+            for i in avail_listbox.curselection():
+                name = avail_listbox.get(i)
+                if name not in self._skill_wishlist:
+                    self._skill_wishlist.append(name)
+            _refresh_wish()
+            _update_cfg()
+
+        def _remove_skills():
+            for i in reversed(wish_listbox.curselection()):
+                del self._skill_wishlist[i]
+            _refresh_wish()
+            _update_cfg()
+
+        search_var.trace_add("write", lambda *_: _refresh_avail())
+        avail_listbox.bind("<Double-Button-1>", lambda e: _add_skills())
+        wish_listbox.bind("<Double-Button-1>", lambda e: _remove_skills())
+        _refresh_avail()
+        _refresh_wish()
+
     def _build_auto_tab(self, parent):
         cfg = self.config_data
         auto = cfg.get("automation_settings", {})
@@ -605,13 +809,8 @@ class BotLauncher(tk.Tk):
         elif self.bot_running:
             self.status_var.set("Status: RUNNING...")
         else:
-            tess = "OK" if _find_tesseract() else "MISSING"
-            tpl_dir = Path("templates")
-            tpl_count = len(list(tpl_dir.rglob("*.png"))) if tpl_dir.exists() else 0
-            self.status_var.set(
-                "Status: Ready  |  Tesseract: " + tess
-                + "  |  Templates: " + str(tpl_count) + "/" + str(len(REQUIRED_TEMPLATES))
-            )
+            ocr = "OK" if _check_easyocr() else "MISSING"
+            self.status_var.set("Status: Ready  |  EasyOCR: " + ocr)
         self.after(2000, self._update_status_bar)
 
     def _start_bot(self):
@@ -686,8 +885,9 @@ class BotLauncher(tk.Tk):
     def _recheck_prereqs(self):
         issues = check_prerequisites()
         has_problems = (
-            issues["python_packages"]
-            or issues["tesseract"]
+            issues.get("python_version")
+            or issues["python_packages"]
+            or issues["easyocr"]
             or issues["templates"]
         )
         if has_problems:

@@ -2,8 +2,6 @@ import cv2
 import ctypes
 import json
 import numpy as np
-import os
-import shutil
 import win32gui
 import win32ui
 import win32con
@@ -13,22 +11,6 @@ from pathlib import Path
 CAPTUREBLT = 0x40000000
 
 class CaptureMixin:
-
-    def _setup_tesseract(self):
-        import pytesseract as _pyt
-        t = shutil.which("tesseract")
-        if t:
-            _pyt.pytesseract.tesseract_cmd = t
-            return
-        candidates = [
-            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-            os.path.expanduser(r"~\AppData\Local\Tesseract-OCR\tesseract.exe"),
-        ]
-        for c in candidates:
-            if os.path.exists(c):
-                _pyt.pytesseract.tesseract_cmd = c
-                return
 
     def find_game_window(self):
         candidates = []

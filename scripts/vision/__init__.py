@@ -35,7 +35,7 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         "mood_great": "mood_zone", "mood_good": "mood_zone",
         "mood_normal": "mood_zone", "mood_bad": "mood_zone",
         "mood_awful": "mood_zone",
-        "btn_infirmary_on": "btn_infirmary", "btn_infirmary_off": "btn_infirmary",
+        "btn_infirmary": "btn_infirmary",
         "btn_rest_summer": "btn_rest",
         "race_view_results_on": "race_view_results",
         "race_view_results_off": "race_view_results",
@@ -99,7 +99,6 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         self._client_offset_x = 0
         self._client_offset_y = 0
         self._calibration = self._load_calibration()
-        self._setup_tesseract()
 
     def _load_ref_width(self) -> Optional[int]:
         """Load the reference game width templates were captured at."""

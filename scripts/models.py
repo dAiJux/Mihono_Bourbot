@@ -11,6 +11,7 @@ class GameScreen(Enum):
     STRATEGY = "strategy"
     UNITY = "unity"
     CAREER_COMPLETE = "career_complete"
+    SKILL_SELECT = "skill_select"
     UNKNOWN = "unknown"
 
 class Action(Enum):
@@ -21,5 +22,6 @@ class Action(Enum):
     RECREATION = "recreation"
     TRAINING = "training"
     UNITY_CUP = "unity_cup"
+    CLAW_MACHINE = "claw_machine"
     SKIP = "skip"
     COMPLETE = "complete"

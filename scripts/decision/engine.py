@@ -65,12 +65,6 @@ class EngineMixin:
             if date_info else "unknown"
         )
 
-        if not hasattr(self, "_infirmary_cooldown"):
-            self._infirmary_cooldown = 0
-        if self._infirmary_cooldown > 0:
-            self._infirmary_cooldown -= 1
-            self.logger.info(f"Infirmary cooldown active ({self._infirmary_cooldown} turns remaining) — skipping injury check")
-            has_injury = False
 
         self.logger.info(
             f"State — Energy: {energy:.0f}%, Mood: {mood}, Injury: {has_injury}, "
@@ -95,15 +89,14 @@ class EngineMixin:
 
         if has_injury:
             self.logger.info("PRIORITY 1: Injury detected -> INFIRMARY")
-            self._infirmary_cooldown = 10
             return (Action.INFIRMARY, None)
 
         if energy < 30:
             self.logger.info(f"Energy critically low ({energy:.0f}% < 30%) -> hard REST")
             return (Action.REST, "summer" if is_summer else None)
 
-        if mood.lower() == "awful":
-            self.logger.info(f"Mood '{mood}' is awful -> hard RECREATION")
+        if mood.lower() in ("awful", "bad"):
+            self.logger.info(f"Mood '{mood}' is bad/awful -> RECREATION to recover")
             return (Action.RECREATION, None)
 
         if not is_junior and mood.lower() != "great":
@@ -301,33 +294,37 @@ class EngineMixin:
         best_training = None
         best_score = -999.0
 
+        has_trainable = any(stat_status[t] == "trainable" for t in self.vision.STAT_NAMES)
+
         for training_type in self.vision.STAT_NAMES:
             if stat_status[training_type] == "max":
                 self.logger.debug(f"Training {training_type}: BLOCKED (at max 1200)")
                 continue
-                
+
+            type_status = stat_status[training_type]
+            if type_status == "target_reached" and has_trainable:
+                self.logger.debug(f"Training {training_type}: SKIPPED (target reached, trainable stats remain)")
+                continue
+
             gains = self.TRAINING_STAT_GAINS.get(training_type, {})
             score = 0.0
-            
+
             for stat, contribution in gains.items():
-                current = current_stats.get(stat, 0)
-                
                 if stat_status[stat] == "max":
                     score -= contribution * 10.0
                     continue
-                    
-                if stat_status[stat] == "target_reached":
-                    score += contribution * priority_weights.get(stat, 0.5) * 0.33
+
+                if stat_status[stat] in ("target_reached", "near_target") and has_trainable:
+                    score += contribution * priority_weights.get(stat, 0.5) * 0.20
                     continue
-                    
-                if stat_status[stat] == "near_target":
-                    score += contribution * priority_weights.get(stat, 0.5) * 0.5
-                    continue
-                
+
                 deficit = deficits.get(stat, 0)
                 prio_w = priority_weights.get(stat, 0.5)
                 deficit_ratio = deficit / max(self.targets.get(stat, 600), 1)
                 score += contribution * prio_w * (1.0 + deficit_ratio)
+
+            if type_status == "near_target" and has_trainable:
+                score *= 0.5
 
             self.logger.debug(f"Training {training_type}: balanced_score={score:.2f}")
             if score > best_score:
@@ -388,4 +385,3 @@ class EngineMixin:
                 score += contribution * prio * 0.5
 
         return score
-    

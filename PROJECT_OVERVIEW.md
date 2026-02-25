@@ -2,120 +2,138 @@
 
 ## Architecture
 
-The bot uses a **modular mixin pattern** with four main modules orchestrated by a central class.
+The bot uses a **flat mixin pattern** — all modules live at the package root and are composed into a single `MihonoBourbot` class via multiple inheritance.
 
 ```
-┌──────────────────────────────────────────────────┐
-│                   GUI Launcher                   │
-│            (scripts/gui/launcher.py)             │
-└──────────────────┬───────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                  GUI Launcher                   │
+│               (launcher.py)                     │
+└──────────────────┬──────────────────────────────┘
                    │ spawns thread
-┌──────────────────▼───────────────────────────────┐
-│              Mihono Bourbot                     │
-│             (scripts/bot.py)                     │
-│                                                  │
-│   ┌─────────────┐  ┌─────────────┐  ┌─────────┐ │
-│   │VisionModule │  │DecisionModule│  │Automation││
-│   │  (capture,  │  │  (priority  │  │  Module  ││
-│   │   OCR,      │──│   tree,     │──│ (clicks, ││
-│   │  templates) │  │   events)   │  │  delays) ││
-│   └─────────────┘  └─────────────┘  └─────────┘ │
-└──────────────────────────────────────────────────┘
+┌──────────────────▼──────────────────────────────┐
+│               MihonoBourbot                     │
+│                 (bot.py)                        │
+│                                                 │
+│  CaptureMixin  │  DetectionMixin  │  OcrMixin   │
+│  EngineMixin   │  NavigationMixin │  RaceMixin  │
+│  SkillsMixin   │  TrainingMixin   │  UnityMixin │
+│  EventsMixin   │  ClicksMixin                  │
+└─────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Module Responsibilities
 
-| Module | Package | Purpose |
-|--------|---------|---------|
-| **VisionModule** | `scripts/vision/` | Window capture (`win32gui`), template matching (OpenCV), OCR (Tesseract) |
-| **DecisionModule** | `scripts/decision/` | 6-level priority tree, event choice lookup |
-| **AutomationModule** | `scripts/automation/` | Click injection (`PostMessage`), race/training flow |
-| **Mihono Bourbot** | `scripts/bot.py` | Main loop: capture → decide → act → repeat |
-| **GUI** | `scripts/gui/` | Tkinter interface for config and control |
+| File | Purpose |
+|------|---------|
+| `bot.py` | Main loop: capture → decide → act → repeat |
+| `models.py` | Shared enums: `GameScreen`, `Action` |
+| `config.py` | Constants, required template names |
+| `capture.py` | Window capture (`PrintWindow` / `BitBlt`), screen calibration |
+| `detection.py` | Template matching, `detect_screen()`, screen-specific detectors |
+| `ocr.py` | EasyOCR — stats, energy, mood, date reading |
+| `training.py` | Training analysis: bursts, friendship, rainbow detection |
+| `engine.py` | Decision priority tree (`decide_action`) |
+| `events.py` | Event matching, choice scoring, database lookup |
+| `navigation.py` | Screen navigation, `advance_turn`, `execute_action` dispatcher |
+| `race.py` | Full race flow: selection → strategy → launch → results |
+| `skills.py` | Skill screen: scroll, OCR, wishlist matching, purchase |
+| `unity.py` | Unity Cup flow: opponents, showdown, results |
+| `clicks.py` | Low-level click helpers: `PostMessage`, offsets, waits |
+| `launcher.py` | Tkinter GUI for configuration and control |
+| `prereqs.py` | Prerequisite checks at startup |
 
 ---
 
 ## Mixin Pattern
 
-Each module package uses **mixin composition**:
-
 ```python
-# scripts/vision/__init__.py
-class VisionModule(
-    CaptureMixin,        # Window capture (capture.py)
-    DetectionMixin,      # Template matching (detection.py)
-    OcrMixin,            # Tesseract OCR (ocr.py)
-    TrainingAnalysisMixin # Training analysis (training.py)
+class MihonoBourbot(
+    CaptureMixin,
+    DetectionMixin,
+    OcrMixin,
+    TrainingMixin,
+    EngineMixin,
+    EventsMixin,
+    NavigationMixin,
+    RaceMixin,
+    SkillsMixin,
+    UnityMixin,
+    ClicksMixin,
 ):
-    def __init__(self, config):
-        ...
+    def __init__(self, config): ...
 ```
 
-**Benefits:**
-- 🔹 Small, focused files (~200-500 lines each)
-- 🔹 Shared `self` at runtime (no passing modules around)
-- 🔹 Easy to locate functionality
-- 🔹 Clear separation of concerns
+All mixins share the same `self`, so any mixin can call methods from any other without passing references.
 
 ---
 
 ## Decision Priority Tree
 
-Every turn, the bot evaluates conditions in **strict order**:
+Every turn, the bot evaluates conditions in strict order:
 
-| Priority | Condition | Action | Implementation |
-|----------|-----------|--------|----------------|
-| **0** | Complete Career screen | Stop bot | `detect_screen()` |
-| **1** | Race day / Scheduled race | → Race | `detect_race_day()` |
-| **2** | Debuff/Injury present | → Infirmary | `detect_injury()` |
-| **3** | Rainbow training + energy ≥ threshold | → Rainbow | `detect_rainbow_training()` |
-| **4** | Energy < low threshold | → Rest | `read_energy_percentage()` |
-| **5** | Mood below target | → Recreation | `detect_mood()` |
-| **6** | Default | → Train best stat | `_determine_training_stat()` |
+| Priority | Condition | Action | Key method |
+|----------|-----------|--------|------------|
+| **0** | `btn_race_start` visible | → Race (mandatory) | `detect_race_day()` |
+| **1** | Target / scheduled race | → Race | `detect_target_race()` |
+| **2** | Injury present | → Infirmary | `detect_injury()` |
+| **3** | Energy < 30% | → Rest | `read_energy_percentage()` |
+| **4** | Mood awful / not Great (Classic+) | → Recreation | `detect_mood()` |
+| **5** | Default | → Train best stat | `_determine_training_stat()` |
 
-**Code:**
-```python
-# scripts/decision/engine.py
-def decide_action(self) -> Tuple[Action, Optional[str]]:
-    if self.vision.detect_race_day(screenshot):
-        return (Action.RACE, "raceday")
-    if self.vision.detect_injury(screenshot):
-        return (Action.INFIRMARY, None)
-    # ... continues through priorities
+**Screen detection order in `detect_screen()`:**
+
+1. Strategy popup (4 strategy templates)
+2. Skill select (`buy_skill`, `learn_btn`, `confirm_btn`)
+3. **Race / mandatory race** (`btn_race_start` — checked before MAIN to avoid background button confusion)
+4. Race select (`btn_race`)
+5. Main screen (2+ main buttons)
+6. Training screen (2+ training templates)
+7. Inspiration, Unity, Race result, Career complete, Event
+8. UNKNOWN
+
+---
+
+## Screen Flow
+
 ```
+MAIN
+ ├── Race day → RACE (mandatory) → RACE_RESULT → MAIN
+ ├── btn_races → RACE_SELECT → [STRATEGY] → RACE → RACE_RESULT → MAIN
+ ├── btn_training → TRAINING → MAIN
+ ├── btn_skills → SKILL_SELECT → MAIN
+ ├── btn_rest / btn_recreation → MAIN
+ └── Event popup → EVENT → MAIN
+```
+
+---
+
+## Skill System
+
+Skills are handled by `SkillsMixin` (`skills.py`):
+
+1. Navigate to skill screen via `btn_skills`
+2. Scroll the list with a slow drag (`0.65 → 0.45` of screen height)
+3. After each scroll, compare visible `buy_skill` icon positions
+4. Stop when same positions appear twice in a row (end of list)
+5. For each visible active icon, OCR the skill name using gradient-based cluster detection
+6. Fuzzy-match against the configured wishlist (`rapidfuzz`)
+7. Select matching skills, then confirm purchase
 
 ---
 
 ## Event System
 
-Events are matched against `config/event_database.json`:
+Events are matched against `config/event_database.json` (500+ entries from game8.co):
 
-```json
-{
-  "character_events": {
-    "Sakura Bakushin O": [
-      {"title_pattern": "Explosive", "choice": 1, "reason": "+Speed +Guts"}
-    ]
-  },
-  "support_card_events": { ... },
-  "common_events": { ... },
-  "keyword_patterns": {
-    "keywords": ["training", "practice"],
-    "patterns": ["+Speed", "stat", "boost"]
-  }
-}
-```
+1. Match by character name → character-specific choices
+2. Match by support card → support-specific choices
+3. Match common events
+4. Keyword pattern fallback
+5. Default to choice 1
 
-**Matching algorithm:**
-1. Try character-specific events
-2. Try support card events
-3. Try common events
-4. Fall back to keyword patterns
-5. Default to first choice if no match
-
-**Data source:** [game8.co](https://game8.co/games/Umamusume-Pretty-Derby)
+Scrape updated data: `python scrape_events.py`
 
 ---
 
@@ -124,186 +142,61 @@ Events are matched against `config/event_database.json`:
 ### Screenshot Capture
 
 ```python
-# Method 1: PrintWindow (primary)
-hwnd_dc = win32gui.GetWindowDC(hwnd)
-mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
+# Primary: PrintWindow (works with hardware-accelerated renderers)
+ctypes.windll.user32.PrintWindow(hwnd, dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
 
-# Method 2: BitBlt (fallback)
-desktop_dc = win32gui.GetWindowDC(hdesktop)
-mem_dc.BitBlt((0, 0), (w, h), img_dc, (x, y), win32con.SRCCOPY | CAPTUREBLT)
+# Fallback: BitBlt
+mem_dc.BitBlt((0,0), (w,h), img_dc, (x,y), SRCCOPY | CAPTUREBLT)
 ```
 
 ### Click Delivery
 
 ```python
-# Direct to window (no mouse movement)
+# Direct to window — no mouse movement
 lp = win32api.MAKELONG(client_x, client_y)
-win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
-time.sleep(random.uniform(0.05, 0.15))  # Humanlike delay
-win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+win32gui.PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lp)
+time.sleep(random.uniform(0.05, 0.15))
+win32gui.PostMessage(hwnd, WM_LBUTTONUP, 0, lp)
 ```
 
----
+### Scroll (Skill List)
 
-## File Structure
-
-```
-mihono_bourbot/
-├── scripts/                               # Main package
-│   ├── __init__.py                        # Exports MihonoBourbot, GameScreen, Action
-│   ├── __main__.py                        # Entry point (CLI args)
-│   ├── bot.py                             # Orchestrator (main loop)
-│   ├── models.py                          # Shared enums
-│   │
-│   ├── vision/                            # Vision module
-│   │   ├── __init__.py                    # VisionModule (composite)
-│   │   ├── capture.py                     # Window capture, calibration
-│   │   ├── detection.py                   # Template matching, screen detection
-│   │   ├── ocr.py                         # Tesseract OCR (stats, energy, mood)
-│   │   └── training.py                    # Training analysis (friends, bursts)
-│   │
-│   ├── automation/                        # Automation module
-│   │   ├── __init__.py                    # AutomationModule (composite)
-│   │   ├── clicks.py                      # Low-level click helpers
-│   │   ├── race.py                        # Race flow (prep, run, results)
-│   │   ├── training.py                    # Training execution
-│   │   ├── events.py                      # Event handling
-│   │   ├── unity.py                       # Unity Cup flow
-│   │   └── navigation.py                  # Screen navigation, turn advance
-│   │
-│   ├── decision/                          # Decision module
-│   │   ├── __init__.py                    # DecisionModule (composite)
-│   │   ├── engine.py                      # Priority tree
-│   │   └── events.py                      # Event choice scoring
-│   │
-│   └── gui/                               # GUI module
-│       ├── __init__.py                    # Exports main(), BotLauncher
-│       ├── launcher.py                    # Main window (tkinter)
-│       ├── config.py                      # Config defaults & constants
-│       └── prereqs.py                     # Prerequisite checks
-│
-├── tools/                                 # Standalone utilities
-│   ├── capture_templates.py               # Interactive template capture
-│   ├── calibrate_positions.py             # Screen position calibrator
-│   ├── visual_debug.py                    # Debug overlay (press D)
-│   ├── scrape_events.py                   # Event database scraper
-│   └── build_exe.py                       # PyInstaller script
-│
-├── config/                                # Configuration
-│   ├── config.json                        # User settings
-│   ├── calibration.json                   # Screen calibration
-│   └── event_database.json                # Event choices (500+ entries)
-│
-├── templates/                             # Template images (user-captured)
-│   ├── main_screen/                       # Main hub buttons
-│   ├── training/                          # Training icons & burst indicators
-│   ├── race/                              # Race flow elements
-│   ├── events/                            # Event choice buttons
-│   ├── unity/                             # Unity Cup elements
-│   ├── status/                            # Mood & energy indicators
-│   └── common/                            # Shared navigation buttons
-│
-└── logs/                                  # Runtime logs
-    └── bot.log                            # Main log file
+```python
+# Slow drag via WM_MOUSEMOVE sequence
+win32gui.PostMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lp_start)
+for step in range(25):
+    win32gui.PostMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, lp_interp)
+    time.sleep(0.04)
+win32gui.PostMessage(hwnd, WM_LBUTTONUP, 0, lp_end)
 ```
 
 ---
 
 ## Technology Stack
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **Language** | Python 3.8+ | Core language |
-| **Window Capture** | pywin32 (`win32gui`, `win32ui`) | Screenshot via WinAPI |
-| **Click Injection** | pywin32 (`PostMessage`) | Sends clicks without moving mouse |
-| **Template Matching** | OpenCV (`cv2.matchTemplate`) | Detects UI elements |
-| **OCR** | Tesseract + pytesseract | Reads stats, energy, mood |
-| **GUI** | tkinter (stdlib) | Configuration interface |
-| **Packaging** | PyInstaller | Standalone .exe builds |
-
----
-
-## Data Flow
-
-```
-┌─────────┐
-│  Start  │
-└────┬────┘
-     │
-     ▼
-┌──────────────────┐
-│ Capture Window   │ (VisionModule.take_screenshot)
-│ → np.ndarray     │
-└────┬─────────────┘
-     │
-     ▼
-┌──────────────────┐
-│ Detect Screen    │ (VisionModule.detect_screen)
-│ → GameScreen     │
-└────┬─────────────┘
-     │
-     ▼
-┌──────────────────┐
-│ Read State       │ (OCR: stats, energy, mood)
-│ → Dict           │ (Template: injury, race day, etc.)
-└────┬─────────────┘
-     │
-     ▼
-┌──────────────────┐
-│ Decide Action    │ (DecisionModule.decide_action)
-│ → Action, detail │
-└────┬─────────────┘
-     │
-     ▼
-┌──────────────────┐
-│ Execute Action   │ (AutomationModule.execute_action)
-│ → clicks, waits  │
-└────┬─────────────┘
-     │
-     ▼
-┌──────────────────┐
-│ Advance Turn     │ (AutomationModule.advance_turn)
-│ → handle dialogs │
-└────┬─────────────┘
-     │
-     └──────► (loop)
-```
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.8+ |
+| Window capture | pywin32 (`PrintWindow`, `BitBlt`) |
+| Click injection | pywin32 (`PostMessage`) |
+| Template matching | OpenCV (`matchTemplate`, `TM_CCOEFF_NORMED`) |
+| OCR | EasyOCR (no external binary, GPU-optional) |
+| Fuzzy matching | rapidfuzz (skill name matching) |
+| GUI | tkinter (stdlib) |
+| Packaging | PyInstaller |
 
 ---
 
 ## Key Design Decisions
 
-### Why Mixins?
+**Flat package structure** — All files at root, no subdirectory nesting. Easier to navigate and import without `__init__` boilerplate.
 
-**Problem:** Large monolithic classes (2000+ lines).  
-**Solution:** Split into focused mixins (200-500 lines each).  
-**Trade-off:** More files, but easier to navigate and maintain.
+**Mixin composition** — `MihonoBourbot` inherits from all mixins. Any method can call any other via `self`. Avoids passing module references around.
 
-### Why `PostMessage` instead of `pyautogui`?
+**`PostMessage` over `pyautogui`** — Sends clicks directly to the window handle. User's mouse stays free. Windows-only trade-off.
 
-**Problem:** `pyautogui` moves the user's mouse.  
-**Solution:** `PostMessage` sends clicks directly to window handle.  
-**Trade-off:** Windows-only, some emulators block it.
+**EasyOCR over Tesseract** — No external binary dependency, works at small font sizes, GPU-optional. Slightly slower first load (model download).
 
-### Why Tesseract OCR?
+**Template-based detection** — Game UI is deterministic. Template matching is faster and more reliable than ML for fixed UI layouts. Per-button masks exclude character overlays that would otherwise reduce confidence.
 
-**Problem:** Game stats change dynamically (can't template match numbers).  
-**Solution:** OCR reads digits from screen.  
-**Trade-off:** Requires external dependency, can misread at low resolution.
-
-### Why not machine learning?
-
-**Problem:** Game UI is deterministic (buttons always in same place).  
-**Solution:** Template matching is simpler, faster, and more reliable.  
-**Trade-off:** Need to recapture templates if UI changes.
-
----
-
-## Future Improvements
-
-- 🔸 Multi-scenario support (Grand Live, etc.)
-- 🔸 Web dashboard for remote monitoring
-- 🔸 Docker support for headless operation
-- 🔸 Skill inheritance optimization
-- 🔸 Auto-template recapture on UI changes
+**Gradient-based OCR for skills** — Instead of OCR'ing the full screen, the bot detects horizontal brightness gradients near each `buy_skill` icon to isolate the title text cluster, then runs EasyOCR on that small crop. More reliable than full-screen OCR at varying positions.

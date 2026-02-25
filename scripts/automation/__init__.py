@@ -6,9 +6,10 @@ from .training import TrainingMixin
 from .events import EventMixin
 from .unity import UnityMixin
 from .navigation import NavigationMixin
+from .skills import SkillsMixin
 
 class AutomationModule(
-    ClickMixin, RaceMixin, TrainingMixin, EventMixin, UnityMixin, NavigationMixin
+    ClickMixin, RaceMixin, TrainingMixin, EventMixin, UnityMixin, NavigationMixin, SkillsMixin
 ):
 
     def __init__(self, config: dict, vision_module, decision_module):

@@ -1,210 +1,176 @@
 # Template Capture Guide
 
-Templates are **small PNG images** of UI elements used for template matching (OpenCV `matchTemplate`). You must capture these from your own game window to match your resolution.
+Templates are small PNG images of UI elements used for template matching (`cv2.matchTemplate`). They must be captured from your own game window to match your resolution and scale.
 
 ---
 
 ## Quick Start
 
 ```bash
-python tools/capture_templates.py
+python capture_templates.py
 ```
 
-1. Select game window
-2. For each template below, press **C**, type name, draw tight rectangle
-3. Press **Enter** to save (or **Esc** to cancel)
+1. Select the game window
+2. For each element: press **C**, type the name, draw a tight rectangle
+3. Press **Enter** to save
 
-Templates auto-save to categorized folders.
+All templates are saved to `templates/` at the project root.
 
 ---
 
 ## Required Templates
 
-### Main Screen Buttons
+### Main Screen
 
-| Name | What to Capture | Purpose |
-|------|----------------|---------|
-| `btn_training` | "Training" button | Navigate to training screen |
-| `btn_races` | "Races" button | Navigate to races |
-| `btn_rest` | "Rest" button | Execute rest action |
-| `btn_recreation` | "Recreation / Outing" button | Execute recreation |
-| `btn_infirmary_on` | "Infirmary" button (lit up) | Detect & use infirmary |
-| `btn_infirmary_off` | "Infirmary" button (grayed out) | Distinguish injury state |
-| `btn_races` | "Races" button with character | Open race menu |
+| Name | What to capture |
+|------|----------------|
+| `btn_training` | "Training" button (capture bottom 50%, character overlaps top) |
+| `btn_rest` | "Rest" button |
+| `btn_recreation` | "Recreation" button |
+| `btn_races` | Text "Races" only — tight crop, no character |
+| `btn_rest_summer` | "Rest" button during summer break |
+| `btn_infirmary` | Infirmary button when lit (injury present) |
+| `btn_infirmary_off` | Infirmary button when off |
+| `btn_skills` | "Skills" button |
+
+> **`btn_races` note:** Capture only the text label at the bottom of the button, not the character icon above it. A tight text-only crop gives much higher matching confidence (0.98+) vs a full-button crop with character overlay (0.47).
 
 ### Training Screen
 
-| Name | What to Capture | Purpose |
-|------|----------------|---------|
-| `training_speed` | Speed training icon | Identify training type |
-| `training_stamina` | Stamina training icon | Identify training type |
-| `training_power` | Power training icon | Identify training type |
-| `training_guts` | Guts training icon | Identify training type |
-| `training_wit` | Wit training icon | Identify training type |
-| `icon_rainbow` | Rainbow glow effect | Detect rainbow training |
-| `burst_blue` | Blue burst indicator | Count blue bursts |
-| `burst_white` | White burst indicator | Count white bursts |
-| `friend_bar_partial` | Friend bar (partially filled) | Friendship tracking |
-| `friend_bar_max` | Friend bar (fully filled) | Maxed friendship |
+| Name | What to capture |
+|------|----------------|
+| `training_speed` | Speed training icon |
+| `training_stamina` | Stamina training icon |
+| `training_power` | Power training icon |
+| `training_guts` | Guts training icon |
+| `training_wit` | Wit training icon |
+| `training_selected` | Highlighted training slot indicator |
+| `rainbow_training` | Rainbow glow effect on a training slot |
+| `blue_burst` | Blue burst indicator |
+| `spirit_burst` | White/spirit burst indicator |
+| `friend_bar_partial` | Support bar (partially filled) |
+| `friend_bar_orange` | Support bar (orange, near max) |
+| `friend_bar_max` | Support bar (fully maxed) |
+| `friend_bar_burst` | Support bar (burst active) |
+| `type_speed` | Speed card type icon |
+| `type_stamina` | Stamina card type icon |
+| `type_power` | Power card type icon |
+| `type_guts` | Guts card type icon |
+| `type_wit` | Wit card type icon |
 
 ### Race Elements
 
-| Name | What to Capture | Purpose |
-|------|----------------|---------|
-| `btn_race` | "Race" popup button | Race day detection |
-| `btn_race_confirm` | "Race" confirm button | Race selection |
-| `btn_race_launch` | "Launch" / "Start Race" button | Start race |
-| `btn_race_start` | "Race!" button with character | Race day button |
-| `btn_race_next_finish` | "Next" / "Finish" after race | Advance results |
-| `race_view_results_on` | "View Results" (ON) | Skip race animation |
-| `race_view_results_off` | "View Results" (OFF) | Toggle results |
-| `btn_change_strategy` | "Change Strategy" button | Open strategy menu |
-| `strategy_front` | "Front" strategy | Select strategy |
-| `strategy_pace` | "Pace" strategy | Select strategy |
-| `strategy_late` | "Late" strategy | Select strategy |
-| `strategy_end` | "End" strategy | Select strategy |
+| Name | What to capture |
+|------|----------------|
+| `btn_race` | "Race" popup button (mandatory race day) |
+| `btn_race_start` | "Race!" button (mandatory race screen) |
+| `btn_race_start_ura` | "Race!" button (URA variant) |
+| `btn_race_confirm` | Confirm button in race selection |
+| `btn_race_launch` | Launch / Start Race button |
+| `btn_race_next_finish` | "Next" / "Finish" button after race |
+| `race_view_results_on` | "View Results" toggle ON |
+| `race_view_results_off` | "View Results" toggle OFF |
+| `btn_change_strategy` | "Change Strategy" button |
+| `strategy_front` | "Front" strategy option |
+| `strategy_pace` | "Pace" strategy option |
+| `strategy_late` | "Late" strategy option |
+| `strategy_end` | "End" strategy option |
+| `target_race` | Target race indicator |
+| `scheduled_race` | Scheduled race indicator |
 
 ### Event Elements
 
-| Name | What to Capture | Purpose |
-|------|----------------|---------|
-| `event_choice` | Event choice button (any) | Detect event choices |
-| `event_scenario_window` | Scenario event banner | Identify event type |
-| `event_trainee_window` | Trainee event banner | Identify event type |
-| `event_support_window` | Support event banner | Identify event type |
+| Name | What to capture |
+|------|----------------|
+| `event_choice` | An event choice button (any one) |
+| `event_scenario_window` | Scenario event banner/header |
+| `event_trainee_window` | Trainee event banner/header |
+| `event_support_window` | Support card event banner/header |
+
+### Skill Screen
+
+| Name | What to capture |
+|------|----------------|
+| `buy_skill` | The buy/purchase icon next to a skill |
+| `learn_btn` | "Learn" button after selecting skills |
+| `confirm_btn` | "Confirm" button on skill purchase |
+| `gold_skill` | Gold skill rarity indicator |
+| `white_skill` | White skill rarity indicator |
 
 ### Unity Cup
 
-| Name | What to Capture | Purpose |
-|------|----------------|---------|
-| `btn_unity_launch` | "Unity Launch" button | Start unity match |
-| `btn_select_opponent` | "Select Opponent" | Choose opponent |
-| `btn_begin_showdown` | "Begin Showdown" | Start final |
-| `btn_see_unity_results` | "See Results" | View unity results |
-| `btn_next_unity` | "Next" after unity match | Advance flow |
-| `btn_launch_final_unity` | "Launch Final" | Final round |
-| `unity_training` | Unity training indicator | Detect unity training |
+| Name | What to capture |
+|------|----------------|
+| `unity_training` | Unity training indicator |
+| `btn_unity_launch` | "Launch" unity button |
+| `btn_select_opponent` | "Select Opponent" button |
+| `btn_begin_showdown` | "Begin Showdown" button |
+| `btn_see_unity_results` | "See Results" button |
+| `btn_next_unity` | "Next" button after unity match |
+| `btn_launch_final_unity` | "Launch Final" button |
+| `unity_opponent_card` | Opponent card in selection screen |
+| `btn_claw_machine` | Claw machine button |
 
-### Common Elements
+### Status Indicators
 
-| Name | What to Capture | Purpose |
-|------|----------------|---------|
-| `btn_next` | "Next" button | Advance dialogs |
-| `btn_tap` | "Tap to continue" | Advance text |
-| `btn_skip` | "Skip" button | Skip animations |
-| `btn_ok` | "OK" button | Confirm dialogs |
-| `btn_close` | "Close" (X) button | Dismiss popups |
-| `btn_back` | "Back" / "Return" button | Navigate back |
-| `btn_confirm` | "Confirm" button | Confirm actions |
-| `btn_cancel` | "Cancel" button | Cancel actions |
-| `btn_try_again` | "Try Again" button | Restart failed action |
-| `btn_inspiration` | "Inspiration" button | Dismiss inspiration |
+| Name | What to capture |
+|------|----------------|
+| `mood_great` | "Great" mood indicator |
+| `mood_good` | "Good" mood indicator |
+| `mood_normal` | "Normal" mood indicator |
+| `mood_bad` | "Bad" mood indicator |
+| `mood_awful` | "Awful" mood indicator |
+| `energy_bar_full` | Energy bar (full) |
+| `energy_bar_depleted` | Energy bar (empty/low) |
+
+### Common / Navigation
+
+| Name | What to capture |
+|------|----------------|
+| `btn_next` | "Next" button |
+| `btn_tap` | "Tap to continue" / tap prompt |
+| `btn_skip` | "Skip" button |
+| `btn_ok` | "OK" button |
+| `btn_close` | "Close" / X button |
+| `btn_back` | "Back" / return button |
+| `btn_confirm` | "Confirm" button |
+| `btn_cancel` | "Cancel" button |
+| `btn_try_again` | "Try Again" button |
+| `btn_inspiration` | Inspiration button |
+| `complete_career` | "Complete Career" screen indicator |
 
 ---
 
 ## Tips
 
-### Resolution Matters
+### Tight crops beat wide crops
 
-**Problem:** Templates captured at 1080p won't work at 720p.  
-**Solution:** Capture at the resolution you'll run the bot at.
+Exclude backgrounds, UI chrome, and especially character illustrations. The matching algorithm is sensitive to pixels that change between frames. For buttons where a character overlaps the top half, capture only the bottom portion containing the label.
 
-### Tight Crops
+### Resolution must match
 
-**Problem:** Extra background reduces matching accuracy.  
-**Solution:** Crop as tightly as possible around the element.
+Templates captured at 1920×1080 will not work reliably at 1280×720. Capture at the resolution you'll run the bot at and do not resize the game window afterward.
 
-### Avoid Dynamic Areas
+### Avoid animated areas
 
-**Problem:** Character animations, scrolling text change every frame.  
-**Solution:** Exclude these from templates (capture only static parts).
+Character idles, scrolling text, and glowing effects change every frame. Capture only static parts of elements.
 
-### Naming Convention
+### Naming
 
-**Required:** Use exact lowercase names with underscores:
-- ✅ `btn_training`, `icon_speed`
-- ❌ `Training Button`, `speed icon`, `btn-training`
+Use exact lowercase names with underscores as listed above. The bot references these names directly in code.
 
-### When to Recapture
+### When to recapture
 
-**Triggers:**
-- Game update changes UI
-- Switched resolution
-- Switched emulator
-- Template matching suddenly fails
+- After a game UI update
+- After changing resolution or emulator
+- When a previously working template suddenly fails
 
 ---
 
-## Template Organization
-
-Templates are auto-organized by category:
-
-```
-templates/
-├── main_screen/         # btn_training, btn_races, btn_rest, etc.
-├── training/            # training_speed, icon_rainbow, burst_blue, etc.
-├── race/                # btn_race_launch, strategy_front, etc.
-├── events/              # event_choice, event_scenario_window, etc.
-├── unity/               # btn_unity_launch, unity_training, etc.
-├── status/              # mood indicators, energy bar (if needed)
-└── common/              # btn_next, btn_skip, btn_ok, etc.
-```
-
----
-
-## Testing Templates
-
-After capturing, run **Vision Test**:
+## Testing After Capture
 
 ```bash
-# From GUI
-Click "Vision Test" button
-
-# From CLI
-python -m scripts --test
+python visual_debug.py
 ```
 
-**Expected output:**
-```
-Screen: MAIN
-  btn_training: ✓ found at (x, y)
-  btn_races: ✓ found at (x, y)
-  btn_rest: ✓ found at (x, y)
-  ...
-```
-
----
-
-## Troubleshooting
-
-### Template not detected
-
-**Fixes:**
-1. ✅ Recapture with tighter crop
-2. ✅ Lower `template_match_threshold` (config.json: 0.8 → 0.7)
-3. ✅ Ensure window size unchanged since capture
-4. ✅ Check template exists in correct folder
-
-### Multiple false positives
-
-**Fixes:**
-1. ✅ Crop tighter (less background)
-2. ✅ Increase `template_match_threshold` (0.7 → 0.8)
-3. ✅ Capture more distinctive part of element
-
-### Template works sometimes
-
-**Cause:** Element appearance changes (hover states, animations).  
-**Fix:** Capture the "default" state (no hover, no animation).
-
----
-
-## Advanced: Manual Template Creation
-
-If capture tool doesn't work, you can create templates manually:
-
-1. Take full screenshot of game window
-2. Open in image editor (Paint, GIMP, Photoshop)
-3. Crop tight rectangle around element
-4. Save as PNG in correct folder with correct name
-5. Test with vision test mode
+The live overlay shows which templates are detected on the current screen. Press **D** for the full diagnostics panel, which includes confidence scores and mask sweep results for each main screen button.

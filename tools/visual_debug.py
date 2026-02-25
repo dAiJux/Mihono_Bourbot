@@ -60,13 +60,13 @@ TRAINING_ICONS = [
 
 MAIN_BUTTONS = [
     "btn_training", "btn_rest", "btn_recreation", "btn_races",
-    "btn_rest_summer",
+    "btn_rest_summer", "btn_skills",
 ]
 
 GENERIC_BUTTONS = [
     "btn_confirm", "btn_ok", "btn_close", "btn_cancel",
     "btn_skip", "btn_tap", "btn_next", "btn_back",
-    "btn_race_start", "btn_race_confirm", "btn_race_next_finish",
+    "btn_race_start", "btn_race_next_finish",
     "btn_inspiration", "btn_claw_machine", "btn_unity_launch",
 ]
 
@@ -133,6 +133,17 @@ class VisualDebugTool:
         self.info_lines.append(f"Screen: {self.screen.value.upper()}")
         self.info_lines.append(f"Game area: ({gx},{gy}) {gw}x{gh}")
 
+        _DATE_SCREENS = (GameScreen.MAIN, GameScreen.RACE_SELECT, GameScreen.RACE)
+        if self.screen in _DATE_SCREENS:
+            game_date = self.vision.read_game_date(ss)
+            if game_date:
+                date_str = f"{game_date.get('year','')} {game_date.get('half','')} {game_date.get('month','')}".strip()
+                if game_date.get('turn'):
+                    date_str += f" (turn {game_date['turn']})"
+                self.info_lines.append(f"Date: {date_str}")
+            else:
+                self.info_lines.append("Date: unreadable")
+
         self.detections.append(dict(
             type="rect", label="game_rect", color=COLORS["game_rect"],
             x1=gx, y1=gy, x2=gx+gw, y2=gy+gh, cat="frame"))
@@ -166,6 +177,9 @@ class VisualDebugTool:
         if self.screen in (GameScreen.UNITY, GameScreen.UNKNOWN):
             self._detect_unity_screen(ss, gx, gy, gw, gh)
 
+        if self.screen in (GameScreen.SKILL_SELECT, GameScreen.UNKNOWN):
+            self._detect_skills_screen(ss, gx, gy, gw, gh)
+
         if self.screen == GameScreen.INSPIRATION:
             pos = self.vision.find_template("btn_inspiration", ss, 0.70)
             if pos:
@@ -183,7 +197,8 @@ class VisualDebugTool:
                         x=pos[0], y=pos[1], cat="career"))
                     self.info_lines.append(f"  {tpl}: {pos}")
 
-        self._detect_buttons(ss, gx, gw, GENERIC_BUTTONS, "gen_btn")
+        if self.screen != GameScreen.SKILL_SELECT:
+            self._detect_buttons(ss, gx, gw, GENERIC_BUTTONS, "gen_btn")
 
         if self.show_rois:
             self._detect_calibrated_rois(ss, gx, gy, gw, gh)
@@ -372,7 +387,7 @@ class VisualDebugTool:
         best_label = None
         best_conf = 0
         best_pos = None
-        for name in ["btn_infirmary_on", "btn_infirmary_off"]:
+        for name in ["btn_infirmary"]:
             search, ox, oy = self.vision._get_search_area(name, ss)
             tpl = self.vision._get_scaled_template(name)
             if tpl is None or search.shape[0] < tpl.shape[0] or search.shape[1] < tpl.shape[1]:
@@ -491,6 +506,230 @@ class VisualDebugTool:
                     type="point", label=short, color=(0, 255, 128),
                     x=pos[0], y=pos[1], cat="unity"))
                 self.info_lines.append(f"Unity btn: {short}")
+
+    def _detect_skills_screen(self, ss, gx, gy, gw, gh):
+        self.info_lines.append("Skills screen detected")
+
+        buy_icons = self.vision.find_all_template("buy_skill", ss, 0.82, min_distance=20)
+        visible = [(bx, by) for bx, by in buy_icons
+                   if gy + int(gh * 0.20) < by < gy + int(gh * 0.95)]
+
+        for bx, by in visible:
+            active = self._skill_icon_active(ss, bx, by)
+            dot_color = (0, 220, 60) if active else (0, 60, 220)
+
+            name, name_raw = self._ocr_skill_name_at(ss, bx, by, gx, gw, gh, gy)
+            cost = self._ocr_skill_cost_at(ss, bx, by, gw, gh)
+            state = "BUY" if active else "locked"
+
+            if name:
+                label = f"{name} [{cost}SP] {state}"
+            else:
+                label = f"[{cost}SP] {state}"
+
+            self.detections.append(dict(
+                type="point", label=label,
+                color=dot_color, x=bx, y=by, cat="skill"))
+            self.info_lines.append(f"  {label}")
+            self.info_lines.append(f"    raw_ocr: '{name_raw}'")
+
+        if not visible:
+            self.info_lines.append("  no buy_skill icons visible")
+
+        tpl_close_path = Path("templates/skills/btn_close.png")
+        close_popup_active = False
+        if tpl_close_path.exists():
+            tpl_close = cv2.imread(str(tpl_close_path))
+            gx, gy, gw, gh = self.vision.get_game_rect(ss)
+            game = ss[gy:gy+gh, gx:gx+gw]
+            if tpl_close is not None and tpl_close.shape[0] <= game.shape[0] and tpl_close.shape[1] <= game.shape[1]:
+                res = cv2.matchTemplate(game, tpl_close, cv2.TM_CCOEFF_NORMED)
+                _, mv, _, ml = cv2.minMaxLoc(res)
+                if mv >= 0.75:
+                    cx = gx + ml[0] + tpl_close.shape[1] // 2
+                    cy = gy + ml[1] + tpl_close.shape[0] // 2
+                    self.detections.append(dict(
+                        type="point", label=f"close ({mv:.2f})", color=(255, 200, 0),
+                        x=cx, y=cy, cat="skill"))
+                    self.info_lines.append(f"  close: ({cx},{cy}) conf={mv:.3f}")
+                    close_popup_active = True
+                else:
+                    self.info_lines.append(f"  close: not found (best={mv:.3f})")
+
+        if not close_popup_active:
+            for btn, thr, label in [("learn_btn", 0.72, "learn"), ("confirm_btn", 0.72, "confirm")]:
+                pos = self.vision.find_template(btn, ss, thr)
+                if pos:
+                    self.detections.append(dict(
+                        type="point", label=label, color=(0, 255, 128),
+                        x=pos[0], y=pos[1], cat="skill"))
+                    self.info_lines.append(f"  {label}: {pos}")
+
+        for btn, thr, label in [("btn_back", 0.72, "back")]:
+            pos = self.vision.find_template(btn, ss, thr)
+            if pos:
+                self.detections.append(dict(
+                    type="point", label=label, color=(255, 200, 0),
+                    x=pos[0], y=pos[1], cat="skill"))
+                self.info_lines.append(f"  {label}: {pos}")
+
+    @staticmethod
+    def _skill_icon_active(ss: np.ndarray, x: int, y: int, radius: int = 18) -> bool:
+        y1 = max(0, y - radius)
+        y2 = min(ss.shape[0], y + radius)
+        x1 = max(0, x - radius)
+        x2 = min(ss.shape[1], x + radius)
+        roi = ss[y1:y2, x1:x2]
+        if roi.size == 0:
+            return False
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        green_mask = (
+            (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85) &
+            (hsv[:, :, 1] >= 60) &
+            (hsv[:, :, 2] >= 100)
+        )
+        green_ratio = float(np.sum(green_mask)) / max(1, roi.shape[0] * roi.shape[1])
+        return green_ratio >= 0.10
+
+    @staticmethod
+    def _ocr_skill_name_at(ss: np.ndarray, icon_x: int, icon_y: int,
+                            gx: int, gw: int, gh: int, gy: int):
+        from scripts.vision.ocr import _ocr_text_raw
+        x1 = gx + int(gw * 0.08)
+        x2 = gx + int(gw * 0.73)
+        search_top = max(gy, icon_y - int(gh * 0.130))
+        search_bot = max(gy + 1, icon_y - int(gh * 0.008))
+
+        scan = ss[search_top:search_bot, x1:x2]
+        if scan.size == 0:
+            return "", ""
+
+        gray_scan = cv2.cvtColor(scan, cv2.COLOR_BGR2GRAY).astype(float)
+
+        edge_rows = []
+        for rel_y in range(gray_scan.shape[0]):
+            grad = float(np.abs(np.diff(gray_scan[rel_y])).mean())
+            if grad > 2.0:
+                edge_rows.append(rel_y)
+
+        if not edge_rows:
+            return "", ""
+
+        clusters = []
+        cluster = [edge_rows[0]]
+        for r in edge_rows[1:]:
+            if r - cluster[-1] <= 4:
+                cluster.append(r)
+            else:
+                clusters.append(cluster)
+                cluster = [r]
+        clusters.append(cluster)
+
+        scan_h = scan.shape[0]
+        for min_dist_frac in [0.10, 0.05, 0.02]:
+            min_dist = max(3, int(scan_h * min_dist_frac))
+            candidates = [c for c in clusters if scan_h - max(c) > min_dist]
+            if candidates:
+                break
+        if not candidates:
+            return "", ""
+
+        title_cluster = candidates[-1]
+        t_y1 = max(0, min(title_cluster) - 3)
+        t_y2 = min(scan.shape[0], max(title_cluster) + 6)
+        roi = scan[t_y1:t_y2]
+        if roi.size == 0:
+            return "", ""
+
+        try:
+            Path("logs/debug").mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(f"logs/debug/skill_name_roi_{icon_y % 1000}.png", roi)
+        except Exception:
+            pass
+
+        scale = 3
+        big = cv2.resize(roi, (roi.shape[1] * scale, roi.shape[0] * scale),
+                         interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+
+        best_raw = ""
+        for t in [100, 120, 80]:
+            _, th = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY_INV)
+            dark_pct = float((th > 0).sum()) / max(1, th.size) * 100
+            if 2.0 <= dark_pct <= 20.0:
+                try:
+                    candidate = _ocr_text_raw(th).strip()
+                    if len(candidate) > len(best_raw):
+                        best_raw = candidate
+                except Exception:
+                    pass
+        if not best_raw:
+            _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            try:
+                best_raw = _ocr_text_raw(th).strip()
+            except Exception:
+                pass
+
+        snapped = VisualDebugTool._snap_skill_name(best_raw)
+        return snapped, best_raw
+
+    @staticmethod
+    def _snap_skill_name(raw: str) -> str:
+        if not raw:
+            return ""
+        try:
+            from difflib import SequenceMatcher as _SM
+            import json as _json
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            db_path = os.path.join(root, "config", "skills.json")
+            if not os.path.exists(db_path):
+                db_path = os.path.join("config", "skills.json")
+            if not os.path.exists(db_path):
+                return raw
+            with open(db_path, encoding="utf-8") as f:
+                skills = _json.load(f)
+            names = [s["name"] for s in skills]
+            raw_words = set(raw.lower().split())
+            best_name = raw
+            best_score = 0.0
+            for n in names:
+                n_words = set(n.lower().replace("◎", "").replace("○", "").split())
+                if raw_words & n_words:
+                    word_score = len(raw_words & n_words) / max(1, len(n_words))
+                    seq_score = _SM(None, raw.lower(), n.lower()).ratio()
+                    score = word_score * 0.6 + seq_score * 0.4
+                else:
+                    score = _SM(None, raw.lower(), n.lower()).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_name = n
+            return best_name if best_score >= 0.25 else raw
+        except Exception:
+            return raw
+
+    @staticmethod
+    def _ocr_skill_cost_at(ss: np.ndarray, icon_x: int, icon_y: int,
+                            gw: int, gh: int) -> str:
+        from scripts.vision.ocr import _ocr_digits
+        cost_x1 = max(0, icon_x - int(gw * 0.12))
+        cost_x2 = max(0, icon_x - int(gw * 0.01))
+        cost_y1 = max(0, icon_y - int(gh * 0.022))
+        cost_y2 = min(ss.shape[0], icon_y + int(gh * 0.022))
+        if cost_x2 <= cost_x1 or cost_y2 <= cost_y1:
+            return "?"
+        roi = ss[cost_y1:cost_y2, cost_x1:cost_x2]
+        if roi.size == 0:
+            return "?"
+        scale = 3
+        big = cv2.resize(roi, (roi.shape[1] * scale, roi.shape[0] * scale),
+                         interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+        try:
+            result = _ocr_digits(thresh).strip()
+            return result if result else "?"
+        except Exception:
+            return "?"
 
     def _detect_events(self, ss, gx, gy, gw, gh):
         event_type = None
@@ -775,6 +1014,8 @@ class VisualDebugTool:
             ("btn_recreation",    0.70),
             ("btn_races",         0.70),
             ("btn_rest_summer",   0.70),
+            ("btn_skills",        0.72),
+            ("btn_infirmary",     0.60),
         ]
 
         for tpl_name, thresh in main_buttons:
@@ -786,60 +1027,72 @@ class VisualDebugTool:
             if th > game.shape[0] or tw > game.shape[1]:
                 print(f"  {tpl_name:22s}  {tw}x{th} — TOO LARGE")
                 continue
-            res = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED)
-            _, mv, _, _ = cv2.minMaxLoc(res)
-            found = self.vision.find_template(tpl_name, ss, thresh)
-            status = "✓ MATCH" if mv >= thresh else "✗ no match"
-            detected = "✅ DETECTED" if found else "❌ NOT FOUND"
+
             use_mask = tpl_name in self.vision._CHARACTER_OVERLAY_TEMPLATES
-            mask_note = f" [mask {int(self.vision._create_character_mask(tpl, tpl_name).mean() / 255 * 100 * (1 - self.vision._create_character_mask(tpl, tpl_name).mean() / 255)):.0f}% used]" if use_mask else ""
-            print(f"  {tpl_name:22s}  {tw:3d}x{th:3d}  conf={mv:.4f}  {status}  {detected}{mask_note}")
+            found = self.vision.find_template(tpl_name, ss, thresh)
+            detected = "✅ DETECTED" if found else "❌ NOT FOUND"
+
+            if use_mask:
+                print(f"  {tpl_name:22s}  {tw:3d}x{th:3d}  thresh={thresh}  {detected}  [mask sweep:]")
+                for mask_pct in [0.0, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90]:
+                    char_zone = int(th * mask_pct)
+                    mask = np.ones((th, tw), dtype=np.uint8) * 255
+                    if char_zone > 0:
+                        mask[0:char_zone, :] = 0
+                    res = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED, mask=mask)
+                    _, mv, _, _ = cv2.minMaxLoc(res)
+                    hit = "✓" if mv >= thresh else "✗"
+                    kept_pct = int((1 - mask_pct) * 100)
+                    print(f"    mask={mask_pct:.0%} (keep bottom {kept_pct:2d}%)  conf={mv:.4f}  {hit}")
+            else:
+                res = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED)
+                _, mv, _, _ = cv2.minMaxLoc(res)
+                status = "✓ MATCH" if mv >= thresh else "✗ no match"
+                print(f"  {tpl_name:22s}  {tw:3d}x{th:3d}  conf={mv:.4f}  {status}  {detected}")
 
         # ── 2. INFIRMARY ON vs OFF ───────────────────────────────────────────
         print(f"\n{'='*60}")
         print(f"DIAGNOSE — Infirmary ON vs OFF")
         print(f"{'='*60}")
 
-        t_on  = self.vision._get_scaled_template("btn_infirmary_on")
-        t_off = self.vision._get_scaled_template("btn_infirmary_off")
+        t_on = self.vision._get_scaled_template("btn_infirmary")
 
-        if t_on is None or t_off is None:
-            print("  MISSING templates btn_infirmary_on or btn_infirmary_off")
+        if t_on is None:
+            print("  MISSING template btn_infirmary")
         else:
-            search, ox, oy = self.vision._get_search_area("btn_infirmary_on", ss)
+            search, ox, oy = self.vision._get_search_area("btn_infirmary", ss)
             if search.shape[0] >= t_on.shape[0] and search.shape[1] >= t_on.shape[1]:
-                r_on  = cv2.matchTemplate(search, t_on,  cv2.TM_CCOEFF_NORMED)
-                r_off = cv2.matchTemplate(search, t_off, cv2.TM_CCOEFF_NORMED)
-                _, mv_on,  _, ml_on  = cv2.minMaxLoc(r_on)
-                _, mv_off, _, ml_off = cv2.minMaxLoc(r_off)
+                res = cv2.matchTemplate(search, t_on, cv2.TM_CCOEFF_NORMED)
+                _, mv_on, _, ml_on = cv2.minMaxLoc(res)
 
-                best_loc = ml_on if mv_on > mv_off else ml_off
                 th_on, tw_on = t_on.shape[:2]
-                roi = search[best_loc[1]:best_loc[1]+th_on, best_loc[0]:best_loc[0]+tw_on]
-                avg_v = float(np.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)[:, :, 2])) if roi.size > 0 else 0.0
+                x1, y1 = ml_on
+                roi = search[y1:y1 + th_on, x1:x1 + tw_on]
 
-                gray_on  = cv2.cvtColor(t_on,  cv2.COLOR_BGR2GRAY)
-                gray_off = cv2.cvtColor(t_off, cv2.COLOR_BGR2GRAY)
-                ref_v_on  = float(np.mean(cv2.cvtColor(t_on,  cv2.COLOR_BGR2HSV)[:, :, 2]))
-                ref_v_off = float(np.mean(cv2.cvtColor(t_off, cv2.COLOR_BGR2HSV)[:, :, 2]))
-                gate = (ref_v_on + ref_v_off) / 2
+                ref_brightness = float(np.mean(cv2.cvtColor(t_on, cv2.COLOR_BGR2GRAY))) if t_on.size > 0 else 0.0
+                roi_brightness = float(np.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY))) if roi.size > 0 else 0.0
+                brightness_diff = abs(roi_brightness - ref_brightness) / ref_brightness if ref_brightness > 0 else 1.0
+                brightness_match = brightness_diff <= 0.15
 
                 detect_result = self.vision.detect_injury(ss)
 
-                print(f"  Template ON  : {tw_on}x{th_on}  ref_V={ref_v_on:.0f}  bright=182")
-                print(f"  Template OFF : {t_off.shape[1]}x{t_off.shape[0]}  ref_V={ref_v_off:.0f}  bright=128")
-                print(f"  Brightness gate (seuil V) : {gate:.0f}")
+                print(f"  Template btn_infirmary : {tw_on}x{th_on}  ref_brightness={ref_brightness:.1f}")
+                print(f"  Score ON     : {mv_on:.4f}  {'✓ MATCH (>=0.60)' if mv_on >= 0.60 else '✗ no match (<0.60, stop ici)'}")
                 print(f"")
-                print(f"  Score ON  : {mv_on:.4f}  {'✓ MATCH' if mv_on >= 0.65 else '✗ no match'}")
-                print(f"  Score OFF : {mv_off:.4f}  {'✓ MATCH' if mv_off >= 0.65 else '✗ no match'}")
-                print(f"  Avg V détectée : {avg_v:.1f}  ({'≥ gate → INJURY' if avg_v >= gate else '< gate → NO INJURY'})")
+                print(f"  ROI brightness      : {roi_brightness:.1f}")
+                print(f"  Ref brightness      : {ref_brightness:.1f}")
+                print(f"  Diff relative       : {brightness_diff:.3f}  (seuil = 0.15)")
+                print(f"  Brightness match    : {'✓ OUI -> bouton allume (ON)' if brightness_match else 'X NON -> bouton eteint (OFF)'}")
                 print(f"")
-                print(f"  detect_injury() → {'✅ INJURY' if detect_result else '✅ NO INJURY (correct)'}")
+                print(f"  +--RESULTAT FINAL-------------------------------------------+")
+                print(f"  | detect_injury() = {'True  => INJURY detecte (bouton ON)' if detect_result else 'False => PAS de blessure (bouton OFF)'}")
+                print(f"  +-----------------------------------------------------------+")
 
                 Path("logs/debug").mkdir(parents=True, exist_ok=True)
                 if roi.size > 0:
                     cv2.imwrite("logs/debug/infirmary_detected_roi.png", roi)
-                    print(f"  ROI sauvegardée : logs/debug/infirmary_detected_roi.png")
+                    print(f"  ROI sauvegardee : logs/debug/infirmary_detected_roi.png")
+
 
         # ── 3. TRAINING ZONE ────────────────────────────────────────────────
         print(f"\n{'='*60}")
@@ -885,6 +1138,63 @@ class VisualDebugTool:
         print(f"\nSupport bars (thin gauge): {bar_info['total']}")
         for ys, ye, bt in bar_info['bars']:
             print(f"  y={ys}-{ye} ({ye-ys+1}px) type={bt}")
+        print(f"{'='*60}\n")
+
+        # ── 4. BTN_CLOSE (Skills popup) ─────────────────────────────────────
+        print(f"\n{'='*60}")
+        print(f"DIAGNOSE — btn_close (templates/skills/btn_close.png)")
+        print(f"{'='*60}")
+
+        tpl_path = Path("templates/skills/btn_close.png")
+        if not tpl_path.exists():
+            print(f"  FILE NOT FOUND: {tpl_path}")
+        else:
+            tpl = cv2.imread(str(tpl_path))
+            th, tw = tpl.shape[:2]
+            print(f"  Template size : {tw}x{th} px")
+            print(f"  Game rect     : ({gx},{gy}) {gw}x{gh}")
+
+            tpl_gray = cv2.cvtColor(tpl, cv2.COLOR_BGR2GRAY)
+            game_gray = cv2.cvtColor(game, cv2.COLOR_BGR2GRAY)
+
+            if th <= game.shape[0] and tw <= game.shape[1]:
+                res_color = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED)
+                res_gray  = cv2.matchTemplate(game_gray, tpl_gray, cv2.TM_CCOEFF_NORMED)
+
+                _, mv_c, _, ml_c = cv2.minMaxLoc(res_color)
+                _, mv_g, _, ml_g = cv2.minMaxLoc(res_gray)
+
+                cx_c = gx + ml_c[0] + tw // 2
+                cy_c = gy + ml_c[1] + th // 2
+                cx_g = gx + ml_g[0] + tw // 2
+                cy_g = gy + ml_g[1] + th // 2
+
+                print(f"\n  [COLOR]  best_conf={mv_c:.4f}  at screen ({cx_c},{cy_c})  rel_y={ml_c[1]/gh:.3f}")
+                print(f"  [GRAY ]  best_conf={mv_g:.4f}  at screen ({cx_g},{cy_g})  rel_y={ml_g[1]/gh:.3f}")
+
+                print(f"\n  Top 5 matches (COLOR):")
+                flat = res_color.flatten()
+                flat.sort()
+                flat = flat[::-1]
+                for i, score in enumerate(flat[:5]):
+                    locs = np.where(res_color >= score)
+                    if len(locs[0]) > 0:
+                        y0, x0 = locs[0][0], locs[1][0]
+                        print(f"    #{i+1}  conf={score:.4f}  screen=({gx+x0+tw//2},{gy+y0+th//2})  rel_y={y0/gh:.3f}")
+
+                print(f"\n  Threshold sweep (COLOR):")
+                for thr in [0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55, 0.50]:
+                    hit = mv_c >= thr
+                    print(f"    thr={thr:.2f}  {'✓ FOUND' if hit else '✗ not found'}  (best={mv_c:.4f})")
+
+                Path("logs/debug").mkdir(parents=True, exist_ok=True)
+                cv2.imwrite("logs/debug/btn_close_tpl.png", tpl)
+                roi = game[ml_c[1]:ml_c[1]+th, ml_c[0]:ml_c[0]+tw]
+                cv2.imwrite("logs/debug/btn_close_match_roi.png", roi)
+                print(f"\n  Saved template   : logs/debug/btn_close_tpl.png")
+                print(f"  Saved match ROI  : logs/debug/btn_close_match_roi.png")
+            else:
+                print(f"  Template {tw}x{th} is LARGER than game area {gw}x{gh} — cannot match")
         print(f"{'='*60}\n")
 
     def capture_template(self):
@@ -1010,4 +1320,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

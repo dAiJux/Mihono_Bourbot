@@ -1,47 +1,43 @@
-# Frequently Asked Questions
+# FAQ
 
 ## General
 
 ### What is Mihono Bourbot?
 
-An automation tool for **Umamusume Pretty Derby** training scenarios. It captures the game window, makes decisions via a priority tree, and sends clicks directly to the window—your mouse and keyboard remain free.
+An automation bot for **Umamusume Pretty Derby** training scenarios. It captures the game window, makes decisions via a priority tree, and sends clicks directly to the window — your mouse and keyboard stay free.
 
 ### What platforms are supported?
 
-**Windows only**. The bot relies on `pywin32` (win32gui, PostMessage) which is Windows-specific. Linux/Mac are not supported.
+**Windows only.** The bot relies on `pywin32` (`PostMessage`, `PrintWindow`) which are Windows-specific APIs.
 
 ### Will I get banned?
 
-⚠️ **Use at your own risk.** Automation may violate the game's Terms of Service. The bot includes anti-detection measures (random offsets, variable delays), but there's always risk.
+⚠️ Use at your own risk. Automation may violate the game's Terms of Service. The bot includes anti-detection measures (random offsets, variable delays) but there is always risk.
 
 ---
 
 ## Setup
 
-### I don't have Tesseract installed
+### How do I install dependencies?
 
-1. Download Windows installer: [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
-2. Install to default path
-3. Add to system PATH, or set path in code:
-   ```python
-   import pytesseract
-   pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-   ```
+```bash
+pip install -r requirements.txt
+```
+
+EasyOCR downloads language models (~500 MB) on first use. An internet connection is required the first time.
 
 ### `pip install pywin32` fails
 
-**Solutions:**
-- Ensure you're on Windows
-- Try specific version: `pip install pywin32==306`
-- If using venv, activate it first
-- Run: `python Scripts\pywin32_postinstall.py -install`
+```bash
+pip install pywin32==306
+python Scripts\pywin32_postinstall.py -install
+```
 
 ### "Game window not found"
 
-**Checklist:**
-- ✅ Game running and **visible** (not minimized)
-- ✅ Window title contains: `umamusume`, `ウマ娘`, `pretty derby`, or `dmm`
-- ✅ For custom emulator titles, add to `VisionModule.GAME_WINDOW_TITLES`
+- Game must be running and **visible** (not minimized)
+- Window title must contain one of: `umamusume`, `ウマ娘`, `pretty derby`, `dmm`
+- For other emulators, add the window title to `GAME_WINDOW_TITLES` in `capture.py`
 
 ---
 
@@ -49,27 +45,26 @@ An automation tool for **Umamusume Pretty Derby** training scenarios. It capture
 
 ### What are templates?
 
-Small PNG screenshots of UI elements (buttons, icons) used for template matching via OpenCV `matchTemplate`.
+Small PNG screenshots of UI elements matched against the live screen using OpenCV `matchTemplate`.
 
 ### How do I capture them?
 
 ```bash
-python tools/capture_templates.py
+python capture_templates.py
 ```
 
-1. Select game window
-2. For each element, press **C**, type name, draw rectangle
-3. Press **Enter** to save (or **C** to cancel)
+See [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md) for the full list and capture tips.
 
-See [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md) for the complete list.
+### A template is not detected
 
-### Template matching is unreliable
+1. Re-capture with a tighter crop (less background)
+2. Ensure game window size has not changed since capture
+3. Run `python visual_debug.py` and press **D** to see confidence scores
+4. Lower the threshold in `config.json` (`template_match_threshold`: 0.8 → 0.7) if needed
 
-**Fixes:**
-- ✅ Re-capture at current resolution
-- ✅ Lower `template_match_threshold` in config (0.8 → 0.7)
-- ✅ Ensure window size unchanged since capture
-- ✅ Crop tightly around elements (no extra background)
+### `btn_races` is not detected
+
+Use a tight crop of the "Races" text label only — exclude the character illustration above it. A text-only crop achieves 0.98+ confidence; a full-button crop with character overlay scores around 0.47 and fails detection.
 
 ---
 
@@ -77,120 +72,74 @@ See [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md) for the complete list.
 
 ### Can I use my PC while the bot runs?
 
-**Yes!** The bot uses `PostMessage` (not `pyautogui`), so your mouse and keyboard stay free.
+Yes. `PostMessage` sends clicks directly to the window handle — your mouse does not move.
 
 ### How do I stop the bot?
 
-- Press **F12** (or your configured emergency stop key)
-- Click **■ Stop Bot** in GUI
+- Press **F12** (or the configured emergency stop key)
+- Click **■ Stop** in the GUI
 - Close the GUI window
+
+### The bot gets stuck after a race
+
+Check that `btn_race_next_finish` and `btn_tap` templates exist. These are used to advance race result screens. If missing or inaccurate, the bot cannot exit the result flow.
+
+### The bot misidentifies the mandatory race screen as Main or Training
+
+This is a known issue when background buttons are visible behind the race overlay. It is resolved in v1.1.0: `btn_race_start` is now checked at the top of `detect_screen`, before any main/training button checks.
 
 ### The bot keeps resting instead of training
 
-**Cause:** Energy threshold too high.
+Energy threshold is too high. Lower `thresholds.energy_training` in `config/config.json` (e.g. 40 → 30).
 
-**Fix:** Lower `thresholds.energy_training` in `config/config.json` (e.g., 40 → 30).
+### The bot doesn't handle a specific event
 
-### The bot doesn't handle an event correctly
+1. Find the event on [game8.co](https://game8.co/games/Umamusume-Pretty-Derby)
+2. Add it to `config/event_database.json`, or run `python scrape_events.py` to pull updated data
 
-**Solutions:**
-1. Add event to `config/event_database.json`
-2. Find event data on [game8.co](https://game8.co/games/Umamusume-Pretty-Derby)
-3. Re-run scraper: `python tools/scrape_events.py`
+### Skill buying doesn't work
+
+- Ensure `buy_skill`, `learn_btn`, and `confirm_btn` templates are captured
+- Check `skill_wishlist` in `config.json` — names must loosely match what OCR reads
+- Run `visual_debug.py` on the skill screen and press **D** to see what is detected
 
 ---
 
 ## Technical Issues
 
-### Tesseract not found
-
-**Error:**
-```
-TesseractNotFoundError: tesseract is not installed or it's not in your PATH
-```
-
-**Fix:**
-1. Download from [here](https://github.com/UB-Mannheim/tesseract/wiki)
-2. Install (default path recommended)
-3. Verify: `tesseract --version`
-
 ### OCR reads wrong stat values
 
-**Fixes:**
-- ✅ Verify Tesseract installed
-- ✅ Use 1080p resolution (720p less reliable)
-- ✅ Increase `ocr_confidence` in config
-- ✅ Check stat region coordinates for your resolution
+- Use 1920×1080 (720p is less reliable)
+- Verify EasyOCR: `python -c "import easyocr; print('OK')"`
+- Models must have been downloaded (requires internet on first run)
 
 ### Clicks don't register in game
 
-**Cause:** Some emulators block `PostMessage`.
+Some emulators block `PostMessage`. Recommended emulators: BlueStacks 5, LDPlayer, MuMu, DMM Player.
 
-**Solutions:**
-- Try different emulator (BlueStacks, LDPlayer, MuMu, Nox)
-- Verify window handle in logs
-- Last resort: Switch to `pyautogui` (takes over mouse)
+### Screen detected as UNKNOWN
 
-### Bot gets stuck in a loop
+Run `python visual_debug.py`, navigate to the problematic screen, and press **D**. The diagnostics panel shows which templates were found and their confidence scores. Recapture any missing or low-confidence templates.
 
-**Debugging:**
-1. Press **F12** to stop
-2. Check `logs/bot.log` for last actions
-3. Verify all required templates exist
-4. Take screenshot of stuck screen
-5. Compare screenshot to templates
+### ImportError: No module named 'win32gui'
 
-### `ImportError` when importing `win32gui`
-
-**Fix:**
 ```bash
-pip install pywin32
-python -c "import win32gui; print('OK')"
-```
-
-If still fails:
-```bash
+pip uninstall pywin32
 pip install pywin32==306
 python Scripts\pywin32_postinstall.py -install
 ```
 
-### The bot trains the wrong stat
-
-**Cause:** Misconfigured priorities or targets.
-
-**Fix:**
-1. Open GUI
-2. Check **Stat Priority** list order
-3. Verify `training_targets` in `config/config.json`
-4. Bot trains first stat in list that hasn't hit target
-
 ---
 
-## Building & Distribution
+## Building
 
 ### How do I build a standalone .exe?
 
 ```bash
 pip install pyinstaller
-python tools/build_exe.py
+python build_exe.py
 ```
 
-Output: `dist/Mihono Bourbot/Mihono Bourbot.exe` (~80MB)
+Output: `dist/Mihono Bourbot/Mihono Bourbot.exe`
 
-### The .exe is huge
-
-**Explanation:** PyInstaller bundles Python interpreter + all dependencies.
-
-**Options:**
-- Use `--onedir` instead of `--onefile` for smaller main executable (with support folder)
-- Remove unused dependencies from `requirements.txt`
-- Expected size: 50-100 MB
-
----
-
-## Getting More Help
-
-1. ✅ Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-2. ✅ Review `logs/bot.log` for detailed action logs
-3. ✅ Enable `screenshot_on_error` in config
-4. ✅ Run vision test: `python -m scripts --test`
+The `.exe` folder must also contain `config/` and `templates/` to run correctly.

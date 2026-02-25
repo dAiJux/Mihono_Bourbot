@@ -3,107 +3,126 @@
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)]()
+[![Status](https://img.shields.io/badge/status-active-brightgreen.svg)]()
 
 > **⚠️ Disclaimer**: This bot automates gameplay which may violate the game's Terms of Service. Use at your own risk.
 
-An advanced desktop automation bot for **Umamusume Pretty Derby** training scenarios. Captures the game window, analyzes UI via template matching and OCR, and executes decisions using Windows API—all without taking over your mouse or keyboard.
+An automation bot for **Umamusume Pretty Derby** training scenarios. Captures the game window, analyzes UI via template matching and OCR, and executes decisions using the Windows API — without taking over your mouse or keyboard.
 
 ---
 
-## ✨ Features
+## Features
 
-| Category | Features |
-|----------|----------|
-| **Interaction** | Window-only clicks via `win32gui` / `PostMessage` — mouse stays free |
-| **Interface** | Full-featured GUI launcher with drag-and-drop stat priorities |
-| **Intelligence** | 6-level decision tree: Race › Infirmary › Rainbow › Rest › Recreation › Training |
-| **Scenarios** | Unity Cup (with spirit bursts & unity matches) + URA scenario |
+| Category | Details |
+|----------|---------|
+| **Interaction** | Window-only clicks via `PostMessage` — mouse and keyboard stay free |
+| **Interface** | GUI launcher with stat priorities, thresholds, and scenario selection |
+| **Decision engine** | Priority tree: Race › Infirmary › Rest › Recreation › Training |
+| **Scenarios** | Unity Cup (spirit bursts, unity matches) + URA |
 | **Events** | 500+ events from game8.co with optimal choice selection |
-| **Vision** | OCR stat reading (Speed/Stamina/Power/Wit/Guts/Energy/Mood) + template matching |
-| **Safety** | Random click offsets, variable delays, F12 emergency stop |
-| **Control** | Pause/Resume, multi-run queue, vision test mode |
+| **Vision** | Template matching (OpenCV) + OCR (EasyOCR) for stats, energy, mood |
+| **Skills** | Skill wishlist — auto-scrolls skill screen, selects matching skills |
+| **Safety** | Random offsets, variable delays, F12 emergency stop |
+| **Debug** | Live overlay (`visual_debug.py`) with D-key diagnostics |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-| Requirement | Link |
-|-------------|------|
-| Python 3.8+ | [Download](https://www.python.org/downloads/) |
-| Tesseract OCR | [Windows Installer](https://github.com/UB-Mannheim/tesseract/wiki) |
-| Umamusume Pretty Derby | Running in a window (DMM/Emulator) |
+| Requirement | Notes |
+|-------------|-------|
+| Python 3.8+ | [python.org](https://www.python.org/downloads/) |
+| Umamusume Pretty Derby | Running in a window (DMM or emulator) |
+| EasyOCR models | Downloaded automatically on first run (~500 MB) |
 
 ### Installation
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/your-org/mihono_bourbot.git
 cd mihono_bourbot
-
-# 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Verify Tesseract installation
-tesseract --version
 ```
 
-### First-Time Setup
-
-**Step 1: Capture Templates** (required)
+### Launch
 
 ```bash
-python tools/capture_templates.py
-```
-
-Follow on-screen instructions to capture UI elements. See [TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md) for the complete list.
-
-**Step 2: Launch GUI**
-
-```bash
+# GUI (recommended)
 python -m scripts
+
+# Vision debug overlay
+python tools/visual_debug.py
 ```
-
-Or double-click `launch_bot.bat` (Windows).
-
-**Step 3: Configure & Run**
-
-1. Set stat targets (Speed, Stamina, Power, Wit, Guts)
-2. Reorder priority via drag-and-drop
-3. Choose scenario (Unity Cup / URA)
-4. Click **▶ Start Bot**
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 mihono_bourbot/
-├── scripts/                    # Core bot package
-│   ├── vision/                 # Screen capture, OCR, template matching
-│   ├── automation/             # Click injection, race/training flow
-│   ├── decision/               # Priority engine, event handling
-│   └── gui/                    # Tkinter launcher interface
-├── tools/                      # Standalone utilities
-│   ├── capture_templates.py    # Interactive template capture
-│   ├── visual_debug.py         # Debug overlay (press D for diagnostics)
-│   └── scrape_events.py        # Event database scraper
-├── config/                     # Configuration files
-│   ├── config.json             # User settings
-│   ├── calibration.json        # Screen calibration
-│   └── event_database.json     # Event choices (game8.co data)
-├── templates/                  # User-captured template images
-│   ├── main_screen/, training/, race/, events/, unity/
-└── logs/                       # Runtime logs
+├── scripts/
+│   ├── automation/
+│   │   ├── clicks.py        # Low-level click helpers
+│   │   ├── events.py        # Event matching & choice scoring
+│   │   ├── navigation.py    # Screen navigation, turn advance
+│   │   ├── race.py          # Full race flow
+│   │   ├── skills.py        # Skill screen scroll & selection
+│   │   ├── training.py      # Training analysis (bursts, friendship, rainbow)
+│   │   └── unity.py         # Unity Cup flow
+│   ├── decision/
+│   │   ├── engine.py        # Decision priority tree
+│   │   └── events.py        # Event decision logic
+│   ├── gui/
+│   │   ├── config.py        # GUI config panel
+│   │   ├── launcher.py      # Tkinter GUI launcher
+│   │   └── prereqs.py       # Prerequisite checks at startup
+│   ├── vision/
+│   │   ├── capture.py       # Window capture, screen calibration
+│   │   ├── detection.py     # Template matching, screen identification
+│   │   ├── ocr.py           # EasyOCR (stats, energy, mood, dates)
+│   │   └── training.py      # Training visual analysis
+│   ├── __main__.py          # CLI entry point
+│   ├── bot.py               # Main loop orchestrator
+│   └── models.py            # Shared enums (GameScreen, Action)
+│
+├── templates/
+│   ├── common/              # Shared buttons (ok, cancel, back…)
+│   ├── events/              # Event window templates
+│   ├── main_screen/         # Main screen buttons
+│   ├── race/                # Race flow templates
+│   ├── skills/              # Skill screen templates
+│   ├── status/              # Energy, mood, injury templates
+│   ├── training/            # Training button templates
+│   ├── unity/               # Unity Cup templates
+│   └── meta.json            # Template metadata
+│
+├── config/
+│   ├── calibration.json     # Screen region calibration
+│   ├── config.json          # User settings
+│   ├── event_database.json  # Event choices (500+ entries)
+│   ├── races.json           # Race schedule data
+│   └── skills.json          # Skill database (515 entries)
+│
+├── assets/
+│   ├── logo-32x32.png
+│   └── logo.ico
+│
+├── tools/
+│   ├── build_exe.py         # PyInstaller packaging script
+│   ├── calibrate_positions.py # Screen position calibrator
+│   ├── capture_templates.py # Interactive template capture tool
+│   ├── scrape_events.py     # Event database scraper (game8.co)
+│   └── visual_debug.py      # Live debug overlay
+│
+├── launch_bot.bat           # Windows launch shortcut
+├── requirements.txt
+└── README.md
 ```
-
-See [PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) for architecture details.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Edit `config/config.json` or use the GUI:
 
@@ -113,109 +132,83 @@ Edit `config/config.json` or use the GUI:
 | `stat_priority` | `["speed", "power", ...]` | Training order |
 | `thresholds.energy_low` | 40 | Rest threshold (%) |
 | `safety_settings.emergency_stop_key` | `F12` | Emergency stop hotkey |
-| `scenario` | `unity_cup` | Scenario type (`unity_cup` or `ura`) |
+| `scenario` | `unity_cup` | `unity_cup` or `ura` |
 
 ---
 
-## 🎯 Decision Logic
+## Decision Logic
 
-The bot evaluates conditions in strict order every turn:
+The bot evaluates conditions in strict priority order each turn:
 
 | Priority | Condition | Action |
 |----------|-----------|--------|
-| **1** | Mandatory/scheduled race detected | → Race |
-| **2** | Debuff/injury present | → Infirmary |
-| **3** | Rainbow training available + energy ≥ threshold | → Rainbow Train |
-| **4** | Energy < low threshold | → Rest |
-| **5** | Mood below target | → Recreation |
-| **6** | Default | → Train highest-priority stat not at target |
+| **0** | Mandatory race day (`btn_race_start` visible) | → Race |
+| **1** | Scheduled / target race detected | → Race |
+| **2** | Injury present | → Infirmary |
+| **3** | Energy < 30% | → Rest |
+| **4** | Mood awful, or not Great in Classic/Senior | → Recreation |
+| **5** | Default | → Train best stat |
 
 ---
 
-## 🎮 Event Handling
+## Skill System
 
-Events are matched against `config/event_database.json` (500+ entries from [game8.co](https://game8.co)):
+The bot can check the skill screen at the end of a run and buy skills from a configurable wishlist:
 
-- **Character events** (e.g., Sakura Bakushin O)
-- **Support card events** (e.g., Kitasan Black SSR Speed)
-- **Common events**
-- **Keyword-based fallback patterns**
+- Navigates to the skill screen via the **Skills** button
+- Scrolls through all available skills using a slow, controlled drag
+- Uses OCR to read each skill name and matches against the wishlist (fuzzy matching)
+- Selects matching skills, then confirms the purchase
 
-Update database: `python tools/scrape_events.py`
-
----
-
-## 🛠️ CLI Usage
-
-```bash
-# Single run (headless)
-python -m scripts --cli
-
-# Multiple runs
-python -m scripts --cli --runs 5
-
-# Vision test mode
-python -m scripts --cli --test
-```
+Configure the wishlist in `config/config.json` under `skill_wishlist`.
 
 ---
 
-## 📦 Building an Executable
+## Tools
 
-```bash
-pip install pyinstaller
-python tools/build_exe.py
-```
-
-Output: `dist/Mihono Bourbot/Mihono Bourbot.exe` (~80MB)
+| Tool | Command | Purpose |
+|------|---------|---------|
+| Visual debug | `python tools/visual_debug.py` | Live overlay with detection info. Press **D** for diagnostics |
+| Template capture | `python tools/capture_templates.py` | Interactive template capture |
+| Screen calibration | `python tools/calibrate_positions.py` | Calibrate UI regions |
+| Event scraper | `python tools/scrape_events.py` | Update event database from game8.co |
+| Build exe | `python tools/build_exe.py` | Package to standalone `.exe` |
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| "Game window not found" | Ensure game is visible (not minimized). Check window title matches keywords in `VisionModule.GAME_WINDOW_TITLES` |
-| Template matching fails | Re-capture templates at current resolution. Lower `template_match_threshold` to 0.7 |
-| OCR reads wrong values | Verify Tesseract installed. Use 1080p for best results |
-| Clicks don't register | Try different emulator (BlueStacks/LDPlayer). Some block `PostMessage` |
+| Game window not found | Ensure game is visible (not minimized). Check window title matches known keywords |
+| Template matching fails | Re-capture templates at current resolution. Use `visual_debug.py` to diagnose |
+| OCR reads wrong values | Use 1920×1080. Verify EasyOCR is installed: `pip install easyocr` |
+| Clicks don't register | Try a different emulator (BlueStacks / LDPlayer / MuMu) |
+| Screen detected as UNKNOWN | Run `visual_debug.py`, press **D** on the relevant screen |
 
-See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) and [FAQ.md](docs/FAQ.md).
-
----
-
-## 📚 Documentation
-
-- [Project Overview](docs/PROJECT_OVERVIEW.md) — Architecture & design
-- [Template Guide](docs/TEMPLATE_GUIDE.md) — How to capture templates
-- [FAQ](docs/FAQ.md) — Common questions
-- [Troubleshooting](docs/TROUBLESHOOTING.md) — Issue resolution
-- [Changelog](docs/CHANGELOG.md) — Version history
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) and [FAQ.md](FAQ.md) for more.
 
 ---
 
-## 🤝 Contributing
+## Documentation
 
-This is a private project for internal team use. Team members with access:
-
-1. Create feature branch: `git checkout -b feature/amazing-feature`
-2. Commit changes: `git commit -m 'Add amazing feature'`
-3. Push branch: `git push origin feature/amazing-feature`
-4. Open Pull Request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- [Project Overview](PROJECT_OVERVIEW.md) — Architecture & design decisions
+- [Template Guide](TEMPLATE_GUIDE.md) — Full template list and capture tips
+- [FAQ](FAQ.md) — Common questions
+- [Troubleshooting](TROUBLESHOOTING.md) — Issue resolution
+- [Changelog](CHANGELOG.md) — Version history
 
 ---
 
-## 📄 License
+## License
 
 MIT License — see [LICENSE](LICENSE) file.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Event data from [game8.co](https://game8.co/games/Umamusume-Pretty-Derby)
 - Template matching via [OpenCV](https://opencv.org/)
-- OCR via [Tesseract](https://github.com/tesseract-ocr/tesseract)
+- OCR via [EasyOCR](https://github.com/JaidedAI/EasyOCR)
 - Window interaction via [pywin32](https://github.com/mhammond/pywin32)

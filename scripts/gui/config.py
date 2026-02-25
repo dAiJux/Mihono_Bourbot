@@ -50,6 +50,8 @@ DEFAULT_CONFIG = {
         "learn_from_choices": False,
     },
     "scenario": "unity_cup",
+    "skill_wishlist": [],
+    "skill_check_interval": 8,
 }
 
 TESSERACT_PATHS = [
@@ -66,8 +68,7 @@ REQUIRED_TEMPLATES = [
     "btn_race_launch",
     "btn_race_start_ura",
     "btn_recreation",
-    "btn_infirmary_on",
-    "btn_infirmary_off",
+    "btn_infirmary",
     "btn_next",
     "btn_next_unity",
     "btn_skip",
@@ -131,13 +132,16 @@ REQUIRED_TEMPLATES = [
     "mood_normal",
     "mood_bad",
     "mood_awful",
+    "buy_skill",
+    "btn_skills",
+    "learn_btn",
+    "confirm_btn",
 ]
 
 REQUIRED_PACKAGES = {
     "cv2": "opencv-python",
     "numpy": "numpy",
     "PIL": "Pillow",
-    "pytesseract": "pytesseract",
     "win32gui": "pywin32",
     "keyboard": "keyboard",
 }
