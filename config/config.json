@@ -24,7 +24,7 @@
         "guts"
     ],
     "race_strategy": {
-        "default": "Pace"
+        "default": "Front"
     },
     "thresholds": {
         "energy_low": 40,
@@ -116,22 +116,6 @@
             "training": true
         }
     },
-    "skill_wishlist": [
-        "Professor of Curvature",
-        "Swinging Maestro",
-        "Pace Chaser Straightaways \u25cb",
-        "Pace Chaser Corners \u25cb",
-        "Medium Straightaways \u25cb",
-        "Medium Corners \u25cb",
-        "Nimble Navigator",
-        "It's On!",
-        "Ramp Up",
-        "Corner Recovery \u25cb",
-        "Corner Adept \u25cb",
-        "Long Corners \u25cb",
-        "Long Straightaways \u25cb",
-        "Straightaway Adept",
-        "All I've Got"
-    ],
+    "skill_wishlist": [],
     "skill_check_interval": 8
 }

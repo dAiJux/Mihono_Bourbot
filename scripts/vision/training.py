@@ -1,319 +1,296 @@
-import time
-import win32gui
-import win32con
+import cv2
 import numpy as np
-from typing import Dict, Tuple
+from typing import Tuple, Optional, List, Dict
 
-from ..models import GameScreen
+class TrainingAnalysisMixin:
 
-class TrainingMixin:
+    _TYPE_TEMPLATES = [
+        "type_speed", "type_stamina", "type_power", "type_guts", "type_wit",
+    ]
 
-    def _get_training_positions(self, screenshot: np.ndarray) -> Dict[str, Tuple[int, int]]:
-        gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
-        cal = self.vision._calibration
-        defaults = {
-            "speed": (0.145, 0.843), "stamina": (0.322, 0.843),
-            "power": (0.500, 0.843), "guts": (0.678, 0.843),
-            "wit": (0.855, 0.843),
+    _TYPE_HUE_VERIFY: Dict[str, list] = {
+        "speed":   [(85, 125)],
+        "stamina": [(0, 15), (165, 179)],
+        "power":   [(10, 35)],
+        "guts":    [(130, 170)],
+        "wit":     [(40, 90)],
+    }
+
+    _BAR_Y_OFFSET = 62
+    _BAR_HALF_H = 5
+
+    _type_icons_cache: tuple = (None, [])
+
+    def detect_burst_training(self, screenshot: np.ndarray) -> Dict[str, List[Tuple[int, int]]]:
+        white = self.find_all_template("burst_white", screenshot, 0.70, min_distance=30)
+        blue = self.find_all_template("burst_blue", screenshot, 0.70, min_distance=30)
+        return {"white": white, "blue": blue}
+
+    def count_friendship_icons(self, screenshot: np.ndarray) -> Dict[str, int]:
+        return {
+            "partial": len(self.find_all_template("friend_bar_partial", screenshot, 0.70, min_distance=30)),
+            "orange": len(self.find_all_template("friend_bar_orange", screenshot, 0.70, min_distance=30)),
+            "max": len(self.find_all_template("friend_bar_max", screenshot, 0.70, min_distance=30)),
+            "burst": len(self.find_all_template("friend_bar_burst", screenshot, 0.70, min_distance=30)),
         }
-        positions = {}
-        for name, (def_x, def_y) in defaults.items():
-            tp = cal.get(f"train_{name}", {})
-            px = gx + int(gw * tp.get("x", def_x))
-            py = gy + int(gh * tp.get("y", def_y))
-            positions[name] = (px, py)
-        return positions
 
-    def execute_training_action(self, training_info=None):
-        if isinstance(training_info, dict):
-            training_type = training_info.get("stat")
-            cached_energy = training_info.get("energy", -1)
-            cached_mood = training_info.get("mood", "unknown")
-        else:
-            training_type = training_info
-            cached_energy = -1
-            cached_mood = "unknown"
-        self.logger.info(f"Executing TRAINING (suggested={training_type})...")
+    def count_rainbows_for_training(self, screenshot: np.ndarray, training_stat: str) -> int:
+        bar_info = self._count_support_bars(screenshot)
+        card_types = self.detect_card_types(screenshot)
+        count = 0
+        for i, card_type in enumerate(card_types):
+            if i < len(bar_info["bars"]):
+                _, _, bar_type = bar_info["bars"][i]
+                if bar_type in ("orange", "gold") and card_type == training_stat:
+                    count += 1
+        return count
 
-        screenshot = self.vision.take_screenshot()
-        screen = self.vision.detect_screen(screenshot)
-        self.logger.info(f"Screen before training: {screen.value}")
+    def get_friendship_bar_positions(self, screenshot: np.ndarray) -> Dict[str, List[Tuple[int, int]]]:
+        return {
+            "partial": self.find_all_template("friend_bar_partial", screenshot, 0.70, min_distance=30),
+            "orange": self.find_all_template("friend_bar_orange", screenshot, 0.70, min_distance=30),
+            "max": self.find_all_template("friend_bar_max", screenshot, 0.70, min_distance=30),
+        }
 
-        if screen == GameScreen.EVENT:
-            self.logger.info("Event screen detected before training — handling event first")
-            self.handle_event(self._event_db)
-            self.wait(0.5)
-            screenshot = self.vision.take_screenshot()
-            screen = self.vision.detect_screen(screenshot)
+    def count_support_friendship(self, screenshot: np.ndarray) -> int:
+        return self._count_support_bars(screenshot)["total"]
 
-        if screen == GameScreen.MAIN:
-            if not self.click_button("btn_training", screenshot):
-                self.logger.error("Cannot find Training button on main screen")
-                return "failed"
-            self.wait(1.0)
-            screenshot = self.vision.take_screenshot()
-            screen = self.vision.detect_screen(screenshot)
+    def _detect_type_icons(
+        self, screenshot: np.ndarray
+    ) -> List[Tuple[int, str, float]]:
+        ss_id = id(screenshot)
+        if self._type_icons_cache[0] == ss_id:
+            return self._type_icons_cache[1]
 
-            race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
-            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup appeared after Training click — launching race instead")
-                self.click_with_offset(*race_popup)
-                self.wait(1.5)
-                return None
+        region = self._calibration.get("support_region")
+        if not region:
+            self._type_icons_cache = (ss_id, [])
+            return []
 
-        if screen == GameScreen.EVENT:
-            self.logger.info("Event appeared after clicking training — handling")
-            self.handle_event(self._event_db)
-            self.wait(0.5)
-            screenshot = self.vision.take_screenshot()
-            screen = self.vision.detect_screen(screenshot)
+        gx, gy, gw, gh = self.get_game_rect(screenshot)
+        x1 = max(0, gx + int(gw * region["x1"]))
+        y1 = max(0, gy + int(gh * region["y1"]))
+        x2 = min(screenshot.shape[1], gx + int(gw * region["x2"]))
+        y2 = min(screenshot.shape[0], gy + int(gh * region["y2"]))
+        crop = screenshot[y1:y2, x1:x2]
+        if crop.size == 0:
+            self._type_icons_cache = (ss_id, [])
+            return []
 
-        if screen != GameScreen.TRAINING:
-            self.logger.warning(f"Not on training screen ({screen.value}), attempting navigation")
+        hsv_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
-            race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
-            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup detected mid-training — launching race")
-                self.click_with_offset(*race_popup)
-                self.wait(1.5)
-                return None
+        all_matches: list = []
 
-            if self.click_button("btn_training", screenshot):
-                self.wait(1.0)
-                screenshot = self.vision.take_screenshot()
-            else:
-                self.logger.error("Cannot reach training screen")
-                return "failed"
-
-        date_info = self.vision.read_game_date(screenshot)
-        current_turn = date_info.get("turn", 0) if date_info else 0
-        is_pre_summer = date_info is not None and current_turn < 37
-        is_summer = self.vision.is_summer_period(date_info)
-        is_junior = not date_info or date_info.get("year") == "junior"
-
-        template_positions = self.vision.get_training_options(screenshot)
-        found_templates = {k: v for k, v in template_positions.items() if v is not None}
-        self.logger.info(f"Template-matched icons: {list(found_templates.keys())} ({len(found_templates)}/5)")
-
-        fallback_positions = self._get_training_positions(screenshot)
-
-        icon_positions = {}
-        for name in ["speed", "stamina", "power", "guts", "wit"]:
-            tpl_pos = found_templates.get(name)
-            fb_pos = fallback_positions[name]
-            if tpl_pos:
-                gx, _, gw, _ = self.vision.get_game_rect(screenshot)
-                if gx <= tpl_pos[0] <= gx + gw:
-                    icon_positions[name] = tpl_pos
-                else:
-                    icon_positions[name] = fb_pos
-            else:
-                icon_positions[name] = fb_pos
-
-        self.vision.save_debug_screenshot("training_screen")
-
-        pre_selected = self._last_selected_training or "speed"
-        others = [n for n in icon_positions if n != pre_selected and n != "speed"]
-        scan_order = others
-        if "speed" != pre_selected:
-            scan_order.append("speed")
-        scan_order.append(pre_selected)
-
-        training_scores = {}
-        for stat in scan_order:
-            pos = icon_positions[stat]
-            self.logger.info(f"  Clicking {stat} at {pos}")
-            self.click_with_offset(*pos)
-            self.wait(0.7)
-            screenshot = self.vision.take_screenshot()
-
-            slot_info = self.decision.score_single_training(stat, screenshot, is_pre_summer)
-            training_scores[stat] = slot_info
-
-        best_slot = max(training_scores, key=lambda s: training_scores[s]["score"]) if training_scores else None
-        best_score = training_scores[best_slot]["score"] if best_slot else 0
-        slot_summary = ", ".join(f"{s}={training_scores[s]['score']}pts" for s in training_scores)
-        self.logger.info(f"Training scores — {slot_summary} | Best: {best_slot} ({best_score}pts)")
-
-        energy = cached_energy if cached_energy >= 0 else self.vision.read_energy_percentage(screenshot)
-        mood = cached_mood if cached_mood != "unknown" else self.vision.detect_mood(screenshot)
-        self.logger.info(f"Using energy={energy:.0f}%, mood={mood} (from main screen)")
-
-        if energy < 45:
-            wit_score = training_scores.get("wit", {}).get("score", 0)
-            if energy >= 35 and wit_score >= 25:
-                self.logger.info(
-                    f"Energy low ({energy:.0f}%) but Wit has {wit_score}pts >= 25 "
-                    f"— Wit restores energy, proceeding"
-                )
-                best_slot = "wit"
-                best_score = wit_score
-            else:
-                self.logger.info(
-                    f"Energy low ({energy:.0f}% < 45%) and wit {wit_score}pts "
-                    f"-> aborting to REST"
-                )
-                self.navigate_to_main_screen(screenshot)
-                return "rest_summer" if is_summer else "rest"
-
-        if not is_junior and mood.lower() != "great":
-            self.logger.info(
-                f"Mood '{mood}' not Great in Classic/Senior — aborting to RECREATION"
-            )
-            self.navigate_to_main_screen(screenshot)
-            return "recreation"
-
-        if is_summer and best_score < 10 and energy < 80:
-            self.logger.info(
-                f"Summer: weak training ({best_score}pts) energy {energy:.0f}% "
-                f"-> aborting to REST"
-            )
-            self.navigate_to_main_screen(screenshot)
-            return "rest_summer"
-
-        if best_slot and best_score > 0:
-            target = best_slot
-        elif training_type:
-            target = training_type
-        else:
-            target = self.config.get("stat_priority", ["speed"])[0]
-
-        currently_selected = scan_order[-1]
-        self._last_selected_training = target
-        target_pos = icon_positions.get(target, fallback_positions.get(target, fallback_positions["speed"]))
-        info = training_scores.get(target, {})
-        self.logger.info(
-            f"Selecting training '{target}' at {target_pos} "
-            f"(score={info.get('score', 0)}pts R={info.get('rainbow', 0)} "
-            f"B={info.get('blue', 0)} W={info.get('white', 0)} F={info.get('friendship', 0)})"
-        )
-
-        if target != currently_selected:
-            self.logger.info(f"Switching from {currently_selected} to {target}")
-            self.click_with_offset(*target_pos)
-            time.sleep(1.0)
-            screenshot = self.vision.take_screenshot()
-            new_pos = self.vision.find_template(f"training_{target}", screenshot, 0.55)
-            if new_pos:
-                target_pos = new_pos
-                self.logger.info(f"Verified {target} at {new_pos}")
-
-        self.logger.info(f"Confirming training '{target}' at {target_pos}")
-        self.click_with_offset(*target_pos)
-        self.wait(0.5)
-        return None
-
-    def _handle_scheduled_race_popup(self) -> bool:
-        screenshot = self.vision.take_screenshot()
-        cancel_pos = self.vision.find_template("btn_cancel", screenshot, threshold=0.75)
-        ok_pos = self.vision.find_template("btn_ok", screenshot, threshold=0.75)
-        if cancel_pos and ok_pos:
-            self.logger.info("Scheduled race conflict popup — clicking Cancel to preserve race")
-            self.click_with_offset(*cancel_pos)
-            self.wait(0.8)
-            return True
-        return False
-
-    def execute_rest_action(self):
-        self.logger.info("Executing REST action...")
-        screenshot = self.vision.take_screenshot()
-        rest_btn = "btn_rest"
-        if self.vision.find_template("btn_rest_summer", screenshot, threshold=0.75):
-            rest_btn = "btn_rest_summer"
-            self.logger.info("Summer period — using Rest & Recreation button")
-        if not self.click_button(rest_btn, screenshot):
-            if rest_btn == "btn_rest_summer" and self.click_button("btn_rest", screenshot):
-                pass
-            else:
-                self.logger.error("Cannot find Rest button")
-                return
-        self.wait(0.5)
-        if self._handle_scheduled_race_popup():
-            return
-        self._handle_claw_machine()
-
-    def _handle_claw_machine(self):
-        screenshot = self.vision.take_screenshot()
-        if not self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7):
-            return
-        self.logger.info("Claw Machine mini-game detected!")
-        for round_num in range(1, 4):
-            if self._check_stopped():
-                return
-            self.logger.info(f"Claw Machine round {round_num}/3")
-            pos = None
-            for attempt in range(5):
-                screenshot = self.vision.take_screenshot()
-                pos = self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7)
-                if pos:
-                    break
-                time.sleep(1.0)
-            if not pos:
-                self.logger.warning(f"Claw machine button not found for round {round_num}")
+        for tpl_name in self._TYPE_TEMPLATES:
+            templ = self._get_scaled_template(tpl_name)
+            if templ is None:
                 continue
-            client_x = pos[0] - self.vision._client_offset_x
-            client_y = pos[1] - self.vision._client_offset_y
-            lp = self._make_lparam(client_x, client_y)
-            hwnd = self.vision.game_hwnd
-            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
-            for _ in range(20):
-                time.sleep(0.1)
-                win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp)
-            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
-            self.logger.info(f"Claw Machine round {round_num} — held 2 seconds")
-            time.sleep(3.0)
-        self.logger.info("Claw Machine done — waiting for OK button")
-        self.wait_and_click("btn_ok", timeout=15)
+            th, tw = templ.shape[:2]
 
-    def execute_infirmary_action(self):
-        self.logger.info("Executing INFIRMARY action...")
-        screenshot = self.vision.take_screenshot()
-        if not self.vision.detect_injury(screenshot):
-            self.logger.warning("Infirmary action requested but no injury detected — skipping")
-            return
-        if not self.click_button("btn_infirmary", screenshot):
-            self.logger.error("Cannot find Infirmary button")
-            return
-        self.wait(0.5)
+            type_name = tpl_name.replace("type_", "")
+            threshold = 0.70
 
-    def execute_recreation_action(self):
-        self.logger.info("Executing RECREATION action...")
-        screenshot = self.vision.take_screenshot()
-        if not self.click_button("btn_recreation", screenshot):
-            self.logger.error("Cannot find Recreation button")
-            return
-        self.wait(0.5)
-        self._handle_scheduled_race_popup()
+            for scale in (1.0, 0.95, 1.05, 0.90, 1.10):
+                if scale == 1.0:
+                    t_img = templ
+                else:
+                    nw, nh = int(tw * scale), int(th * scale)
+                    if nw <= 0 or nh <= 0:
+                        continue
+                    t_img = cv2.resize(templ, (nw, nh),
+                                       interpolation=cv2.INTER_AREA)
+                t_h, t_w = t_img.shape[:2]
+                if crop.shape[0] < t_h or crop.shape[1] < t_w:
+                    continue
 
-    def execute_rainbow_training(self):
-        self.logger.info("Executing RAINBOW TRAINING action...")
-        screenshot = self.vision.take_screenshot()
-        screen = self.vision.detect_screen(screenshot)
-        if screen == GameScreen.MAIN:
-            if not self.click_button("btn_training", screenshot):
-                self.logger.error("Cannot find Training button")
-                return
-            self.wait(0.5)
-            screenshot = self.vision.take_screenshot()
+                res = cv2.matchTemplate(crop, t_img, cv2.TM_CCOEFF_NORMED)
+                loc = np.where(res >= threshold)
+                for py, px in zip(*loc):
+                    score = float(res[py, px])
+                    cy = py + t_h // 2
 
-        rainbow_pos = self.vision.find_template("rainbow_training", screenshot, threshold=0.7)
-        if rainbow_pos:
-            self.click_with_offset(*rainbow_pos)
-            self.wait(0.5)
-            self.click_with_offset(*rainbow_pos)
-            self.wait(0.5)
-        else:
-            self.logger.warning("Rainbow not found — fallback to burst")
-            bursts = self.vision.detect_burst_training(screenshot)
-            if bursts["blue"]:
-                self.click_with_offset(*bursts["blue"][0])
-                self.wait(0.5)
-                self.click_with_offset(*bursts["blue"][0])
-                self.wait(0.5)
-            elif bursts["white"]:
-                self.click_with_offset(*bursts["white"][0])
-                self.wait(0.5)
-                self.click_with_offset(*bursts["white"][0])
-                self.wait(0.5)
+                    patch = hsv_crop[py:py + t_h, px:px + t_w]
+                    sat_mask = (patch[:, :, 1] > 80) & (patch[:, :, 2] > 80)
+                    if np.sum(sat_mask) < 10:
+                        continue
+                    med_hue = float(np.median(patch[:, :, 0][sat_mask]))
+                    if not self._verify_type_hue(type_name, med_hue):
+                        continue
+
+                    all_matches.append((cy, type_name, score))
+
+        if not all_matches:
+            self.logger.debug("Type icons: none detected")
+            self._type_icons_cache = (ss_id, [])
+            return []
+
+        all_matches.sort(key=lambda m: m[0])
+        group_dist = self._scale_px(25)
+        groups: list = [[all_matches[0]]]
+        for m in all_matches[1:]:
+            if m[0] - groups[-1][0][0] < group_dist:
+                groups[-1].append(m)
             else:
-                self.logger.warning("No burst found either")
+                groups.append([m])
+
+        results = [max(g, key=lambda m: m[2]) for g in groups]
+
+        self.logger.debug(
+            "Type icons: %d — %s",
+            len(results),
+            ", ".join(f"{t}@y={y}({s:.2f})" for y, t, s in results),
+        )
+        self._type_icons_cache = (ss_id, results)
+        return results
+
+    @classmethod
+    def _verify_type_hue(cls, type_name: str, hue: float) -> bool:
+        ranges = cls._TYPE_HUE_VERIFY.get(type_name, [])
+        return any(lo <= hue <= hi for lo, hi in ranges)
+
+    def detect_card_types(self, screenshot: np.ndarray) -> List[str]:
+        icons = self._detect_type_icons(screenshot)
+        return [t for _, t, _ in icons]
+
+    def _count_support_bars(self, screenshot: np.ndarray) -> Dict:
+        region = self._calibration.get("support_region")
+        if not region or "x1" not in region:
+            return {"total": 0, "bars": []}
+
+        gx, gy, gw, gh = self.get_game_rect(screenshot)
+        x1 = max(0, gx + int(gw * region["x1"]))
+        y1 = max(0, gy + int(gh * region["y1"]))
+        x2 = min(screenshot.shape[1], gx + int(gw * region["x2"]))
+        y2 = min(screenshot.shape[0], gy + int(gh * region["y2"]))
+        crop = screenshot[y1:y2, x1:x2]
+        if crop.size == 0:
+            return {"total": 0, "bars": []}
+
+        icons = self._detect_type_icons(screenshot)
+        if not icons:
+            self.logger.debug("Support bars: no type icons → 0 bars")
+            return {"total": 0, "bars": []}
+
+        h, w = crop.shape[:2]
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        margin_x = max(1, int(w * 0.20))
+
+        bar_y_off = self._scale_px(self._BAR_Y_OFFSET)
+        bar_half = self._scale_px(self._BAR_HALF_H)
+        bars: list = []
+        for icon_y, icon_type, _ in icons:
+            bar_y1 = icon_y + bar_y_off - bar_half
+            bar_y2 = icon_y + bar_y_off + bar_half
+            if bar_y1 < 0 or bar_y2 >= h:
+                continue
+
+            strip = hsv[bar_y1:bar_y2, margin_x:w - margin_x]
+            s_vals = strip[:, :, 1].ravel()
+            v_vals = strip[:, :, 2].ravel()
+            h_vals = strip[:, :, 0].ravel()
+
+            coloured = (s_vals > 130) & (v_vals > 100)
+            n_coloured = int(np.sum(coloured))
+
+            if n_coloured > 10:
+                med_hue = float(np.median(h_vals[coloured]))
+                med_sat = float(np.median(s_vals[coloured]))
+                med_val = float(np.median(v_vals[coloured]))
+                if 30 <= med_hue <= 80:
+                    bar_type = "green"
+                elif 80 < med_hue <= 120:
+                    bar_type = "blue"
+                elif med_hue <= 30 or med_hue >= 165:
+                    if med_sat < 180 and med_val > 200:
+                        bar_type = "gold"
+                    else:
+                        bar_type = "orange"
+                else:
+                    bar_type = "green"
+            else:
+                bar_type = "empty"
+
+            bars.append((bar_y1, bar_y2, bar_type))
+
+        self.logger.debug(
+            "Support bars: %d — %s",
+            len(bars),
+            ", ".join(f"y={s}-{e}({t})" for s, e, t in bars),
+        )
+        return {"total": len(bars), "bars": bars}
+
+    def count_characters_per_training(self, screenshot: np.ndarray) -> Dict[str, int]:
+        gx, gy, gw, gh = self.get_game_rect(screenshot)
+        results = {}
+        for stat in ["speed", "stamina", "power", "guts", "wit"]:
+            region = self._calibration.get(f"training_{stat}")
+            if not region or "x1" not in region:
+                results[stat] = 0
+                continue
+            x1 = gx + int(gw * region["x1"])
+            y1 = gy + int(gh * region["y1"])
+            x2 = gx + int(gw * region["x2"])
+            y2 = gy + int(gh * region["y2"])
+            crop = screenshot[y1:y2, x1:x2]
+            if crop.size == 0:
+                results[stat] = 0
+                continue
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            circles = cv2.HoughCircles(
+                blurred, cv2.HOUGH_GRADIENT, 1.2, self._scale_px(15),
+                param1=80, param2=30,
+                minRadius=self._scale_px(10), maxRadius=self._scale_px(28),
+            )
+            if circles is not None:
+                face_circles = [c for c in circles[0]
+                                if c[1] < crop.shape[0] * 0.85]
+                results[stat] = len(face_circles)
+            else:
+                results[stat] = 0
+            self.logger.debug(f"  chars_on_{stat}: {results[stat]}")
+        return results
+
+    def count_support_icons_near(self, screenshot: np.ndarray, training_pos: Tuple[int, int], radius: int = 100) -> int:
+        gx, gy, gw, gh = self.get_game_rect(screenshot)
+        sr = self._calibration.get("support_region", {})
+        col_left = gx + int(gw * sr.get("x1", 0.82))
+        col_right = gx + int(gw * sr.get("x2", 0.98))
+        col_top = gy + int(gh * sr.get("y1", 0.10))
+        col_bottom = gy + int(gh * sr.get("y2", 0.48))
+        if col_top >= col_bottom or col_left >= col_right:
+            return 0
+        region = screenshot[col_top:col_bottom, col_left:col_right]
+        if region.size == 0:
+            return 0
+        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        segment_h = self._scale_px(70)
+        count = 0
+        for y_start in range(0, edges.shape[0] - segment_h + 1, segment_h):
+            segment = edges[y_start:y_start + segment_h, :]
+            edge_density = np.sum(segment > 0) / segment.size
+            if edge_density > 0.08:
+                count += 1
+        return count
+
+    def get_training_options(self, screenshot: np.ndarray) -> Dict[str, Optional[Tuple[int, int]]]:
+        options = {}
+        for train in ["speed", "stamina", "power", "guts", "wit"]:
+            pos = self.find_template(f"training_{train}", screenshot, 0.60)
+            options[train] = pos
+            if pos:
+                self.logger.debug(f"Training '{train}' found at {pos}")
+        return options
+
+    def get_burst_status(self, screenshot: np.ndarray) -> Dict[str, list]:
+        return self.detect_burst_training(screenshot)
+
+    def get_friendship_status(self, screenshot: np.ndarray) -> Dict[str, int]:
+        return self.count_friendship_icons(screenshot)
+
+    def has_target_race(self, screenshot: np.ndarray) -> bool:
+        return self.detect_target_race(screenshot)
+
+    def has_scheduled_race(self, screenshot: np.ndarray) -> bool:
+        return self.detect_scheduled_race(screenshot)
