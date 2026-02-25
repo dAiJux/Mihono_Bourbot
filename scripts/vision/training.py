@@ -5,7 +5,7 @@ from typing import Tuple, Optional, List, Dict
 class TrainingAnalysisMixin:
 
     _TYPE_TEMPLATES = [
-        "type_speed", "type_stamina", "type_power", "type_guts", "type_wit",
+        "type_speed", "type_stamina", "type_power", "type_guts", "type_wit", "type_pal",
     ]
 
     _TYPE_HUE_VERIFY: Dict[str, list] = {

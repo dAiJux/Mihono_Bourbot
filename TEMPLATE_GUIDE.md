@@ -29,8 +29,7 @@ All templates are saved to `templates/` at the project root.
 | `btn_recreation` | "Recreation" button |
 | `btn_races` | Text "Races" only — tight crop, no character |
 | `btn_rest_summer` | "Rest" button during summer break |
-| `btn_infirmary` | Infirmary button when lit (injury present) |
-| `btn_infirmary_off` | Infirmary button when off |
+| `btn_infirmary` | Infirmary button when lit (injury present) or not lit |
 | `btn_skills` | "Skills" button |
 
 > **`btn_races` note:** Capture only the text label at the bottom of the button, not the character icon above it. A tight text-only crop gives much higher matching confidence (0.98+) vs a full-button crop with character overlay (0.47).
@@ -57,6 +56,7 @@ All templates are saved to `templates/` at the project root.
 | `type_power` | Power card type icon |
 | `type_guts` | Guts card type icon |
 | `type_wit` | Wit card type icon |
+| `type_pal` | Pal card type icon |
 
 ### Race Elements
 

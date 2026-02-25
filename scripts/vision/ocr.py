@@ -95,10 +95,19 @@ class OcrMixin:
         big = cv2.resize(thresh, (thresh.shape[1] * scale, thresh.shape[0] * scale),
                          interpolation=cv2.INTER_CUBIC)
         try:
-            digits = _ocr_digits(big)
-            digits = digits.strip()
-            if digits.isdigit():
-                return int(digits)
+            reader = _get_reader()
+            raw = reader.readtext(big, detail=1)
+            for (_, text, conf) in raw:
+                if conf >= 0.3 and "max" in text.lower():
+                    return 1200
+            digits = _ocr_digits(big).strip()
+            for length in range(min(4, len(digits)), 0, -1):
+                s = digits[:length]
+                if s[0] == "0" and length > 1:
+                    continue
+                v = int(s)
+                if 1 <= v <= 1200:
+                    return v
             return 0
         except Exception:
             return 0
@@ -373,7 +382,7 @@ class OcrMixin:
                 right_guard = max(5, int(col_w * 0.15))
 
                 candidates: list = []
-                for thresh in (170, 190, 210):
+                for thresh in (160, 170, 180):
                     _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
                     for left_pct in (0, 5, 10):
                         left_m = max(1, int(col_w * left_pct / 100))
@@ -415,6 +424,15 @@ class OcrMixin:
     def _ocr_stat_column(img: np.ndarray) -> Optional[int]:
         reader = _get_reader()
         candidates: list = []
+
+        try:
+            raw = reader.readtext(img, detail=1)
+            for (_, text, conf) in raw:
+                if conf >= 0.3 and "max" in text.lower():
+                    candidates.append(1200)
+        except Exception:
+            pass
+
         for min_conf in (0.6, 0.45, 0.3):
             try:
                 results = reader.readtext(img, detail=1, allowlist="0123456789")
@@ -427,7 +445,7 @@ class OcrMixin:
                 digits = best_text.strip()
                 if not digits:
                     continue
-                for length in range(min(3, len(digits)), 0, -1):
+                for length in range(min(4, len(digits)), 0, -1):
                     s = digits[:length]
                     if s[0] == "0" and length > 1:
                         continue

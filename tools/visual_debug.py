@@ -174,6 +174,9 @@ class VisualDebugTool:
         if self.screen in (GameScreen.STRATEGY, GameScreen.UNKNOWN):
             self._detect_strategy_popup(ss, gx, gy, gw, gh)
 
+        if self.screen in (GameScreen.RECREATION, GameScreen.UNKNOWN):
+            self._detect_pal_recreation_popup(ss, gx, gy, gw, gh)
+
         if self.screen in (GameScreen.UNITY, GameScreen.UNKNOWN):
             self._detect_unity_screen(ss, gx, gy, gw, gh)
 
@@ -445,6 +448,75 @@ class VisualDebugTool:
                     type="point", label=short, color=(0, 255, 0),
                     x=pos[0], y=pos[1], cat="race_prep"))
                 self.info_lines.append(f"  {short}: {pos}")
+
+    def _detect_pal_recreation_popup(self, ss, gx, gy, gw, gh):
+        popup_pos = self.vision.find_template("recreation_popup", ss, 0.70)
+        if not popup_pos:
+            return
+
+        self.detections.append(dict(
+            type="point", label="rec_popup",
+            color=(60, 220, 60), x=popup_pos[0], y=popup_pos[1], cat="pal_rec"))
+        self.info_lines.append("PAL Recreation popup detected")
+
+        empty_arrows = self.vision.find_all_template("arrow_empty", ss, 0.65, min_distance=15)
+        filled_arrows = self.vision.find_all_template("arrow_filled", ss, 0.80, min_distance=15)
+
+        EXCLUSION_DIST = 20
+        filtered_empty = [
+            ep for ep in empty_arrows
+            if not any(abs(ep[0] - fp[0]) <= EXCLUSION_DIST and abs(ep[1] - fp[1]) <= EXCLUSION_DIST
+                       for fp in filled_arrows)
+        ]
+
+        for pt in filtered_empty:
+            self.detections.append(dict(
+                type="point", label="arr_empty", color=(160, 160, 160),
+                x=pt[0], y=pt[1], cat="pal_rec"))
+        for pt in filled_arrows:
+            self.detections.append(dict(
+                type="point", label="arr_filled", color=(255, 160, 0),
+                x=pt[0], y=pt[1], cat="pal_rec"))
+
+        rows_with_empty = []
+        if filtered_empty:
+            sorted_e = sorted(filtered_empty, key=lambda p: p[1])
+            cur = [sorted_e[0]]
+            for pt in sorted_e[1:]:
+                if abs(pt[1] - cur[-1][1]) <= 50:
+                    cur.append(pt)
+                else:
+                    rows_with_empty.append(cur)
+                    cur = [pt]
+            rows_with_empty.append(cur)
+
+        self.info_lines.append(
+            f"  arrows empty={len(filtered_empty)} (raw={len(empty_arrows)})  "
+            f"filled={len(filled_arrows)}  rows_available={len(rows_with_empty)}")
+
+        for i, row in enumerate(rows_with_empty):
+            avg_y = int(sum(p[1] for p in row) / len(row))
+            color = (0, 220, 60) if i == 0 else (100, 200, 100)
+            label = f"PAL row {i + 1}{' <- CLICK' if i == 0 else ''}"
+            self.detections.append(dict(
+                type="point", label=label, color=color, x=popup_pos[0], y=avg_y, cat="pal_rec"))
+            self.info_lines.append(
+                f"  row {i + 1}: {len(row)} empty arrow(s) y={avg_y}"
+                + (" <- would click" if i == 0 else ""))
+
+        trainee_pos = self.vision.find_template("trainee_uma", ss, 0.70)
+        if trainee_pos:
+            is_fallback = len(rows_with_empty) > 0
+            label = "trainee_uma (fallback)" if is_fallback else "trainee_uma <- CLICK (all PAL done)"
+            color = (60, 60, 220) if is_fallback else (0, 220, 60)
+            self.detections.append(dict(
+                type="point", label=label, color=color,
+                x=trainee_pos[0], y=trainee_pos[1], cat="pal_rec"))
+            self.info_lines.append(
+                f"  trainee_uma: {trainee_pos}"
+                + (" (fallback only)" if is_fallback else " <- would click"))
+        else:
+            self.info_lines.append("  trainee_uma: template MISSING ou non detecte")
 
     def _detect_strategy_popup(self, ss, gx, gy, gw, gh):
         """Annotate strategy popup: End, Late, Pace, Front + Confirm/Cancel."""
@@ -1027,28 +1099,12 @@ class VisualDebugTool:
             if th > game.shape[0] or tw > game.shape[1]:
                 print(f"  {tpl_name:22s}  {tw}x{th} — TOO LARGE")
                 continue
-
-            use_mask = tpl_name in self.vision._CHARACTER_OVERLAY_TEMPLATES
             found = self.vision.find_template(tpl_name, ss, thresh)
-            detected = "✅ DETECTED" if found else "❌ NOT FOUND"
-
-            if use_mask:
-                print(f"  {tpl_name:22s}  {tw:3d}x{th:3d}  thresh={thresh}  {detected}  [mask sweep:]")
-                for mask_pct in [0.0, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90]:
-                    char_zone = int(th * mask_pct)
-                    mask = np.ones((th, tw), dtype=np.uint8) * 255
-                    if char_zone > 0:
-                        mask[0:char_zone, :] = 0
-                    res = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED, mask=mask)
-                    _, mv, _, _ = cv2.minMaxLoc(res)
-                    hit = "✓" if mv >= thresh else "✗"
-                    kept_pct = int((1 - mask_pct) * 100)
-                    print(f"    mask={mask_pct:.0%} (keep bottom {kept_pct:2d}%)  conf={mv:.4f}  {hit}")
-            else:
-                res = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED)
-                _, mv, _, _ = cv2.minMaxLoc(res)
-                status = "✓ MATCH" if mv >= thresh else "✗ no match"
-                print(f"  {tpl_name:22s}  {tw:3d}x{th:3d}  conf={mv:.4f}  {status}  {detected}")
+            detected = "DETECTED" if found else "NOT FOUND"
+            res = cv2.matchTemplate(game, tpl, cv2.TM_CCOEFF_NORMED)
+            _, mv, _, _ = cv2.minMaxLoc(res)
+            status = "MATCH" if mv >= thresh else "no match"
+            print(f"  {tpl_name:22s}  {tw:3d}x{th:3d}  conf={mv:.4f}  {status}  {detected}")
 
         # ── 2. INFIRMARY ON vs OFF ───────────────────────────────────────────
         print(f"\n{'='*60}")
@@ -1195,6 +1251,60 @@ class VisualDebugTool:
                 print(f"  Saved match ROI  : logs/debug/btn_close_match_roi.png")
             else:
                 print(f"  Template {tw}x{th} is LARGER than game area {gw}x{gh} — cannot match")
+        print(f"{'='*60}\n")
+
+
+        # ── 5. PAL RECREATION POPUP ─────────────────────────────────────
+        print(f"\n{'='*60}")
+        print(f"DIAGNOSE — PAL Recreation popup")
+        print(f"{'='*60}")
+
+        rec_templates = [
+            ("recreation_popup", 0.70, "Header vert (detecte la popup)"),
+            ("arrow_empty",      0.65, "Fleche vide grise (PAL disponible)"),
+            ("arrow_filled",     0.65, "Fleche pleine bleue (progression PAL)"),
+            ("trainee_uma",      0.70, "Label Trainee Umamusume (dernier recours)"),
+        ]
+
+        for name, thresh, desc in rec_templates:
+            pos = self.vision.find_template(name, ss, thresh)
+            status = "MATCH" if pos else "no match"
+            found_str = f"  at {pos}" if pos else ""
+            print(f"  {name:25s}  conf>={thresh}  {status}{found_str}")
+            print(f"    {desc}")
+
+        print(f"\n  Simulation logique:")
+        popup_pos = self.vision.find_template("recreation_popup", ss, 0.70)
+        if not popup_pos:
+            print(f"  -> popup non detectee")
+        else:
+            print(f"  -> popup detectee a {popup_pos}")
+            empty_pts = self.vision.find_all_template("arrow_empty", ss, 0.65, min_distance=15)
+            if empty_pts:
+                sorted_e = sorted(empty_pts, key=lambda p2: p2[1])
+                rows, cur = [], [sorted_e[0]]
+                for pt in sorted_e[1:]:
+                    if abs(pt[1] - cur[-1][1]) <= 50:
+                        cur.append(pt)
+                    else:
+                        rows.append(cur)
+                        cur = [pt]
+                rows.append(cur)
+                top_y = int(sum(p2[1] for p2 in rows[0]) / len(rows[0]))
+                print(f"  -> {len(empty_pts)} fleche(s) vide(s) — {len(rows)} rangee(s) disponible(s)")
+                print(f"  -> cliquerait rangee n1 a ({popup_pos[0]}, {top_y})")
+                for i, row in enumerate(rows):
+                    avg_y = int(sum(p2[1] for p2 in row) / len(row))
+                    print(f"     rangee {i+1}: {len(row)} vide(s) y={avg_y}{' <- cible' if i == 0 else ''}")
+            else:
+                trainee_pos = self.vision.find_template("trainee_uma", ss, 0.70)
+                if trainee_pos:
+                    print(f"  -> 0 fleche vide (PAL completes) — cliquerait trainee a {trainee_pos}")
+                else:
+                    print(f"  -> 0 fleche vide ET trainee non detecte — Cancel")
+
+        cv2.imwrite("logs/debug/pal_recreation_game.png", ss[gy:gy+gh, gx:gx+gw])
+        print(f"\n  Zone jeu sauvegardee : logs/debug/pal_recreation_game.png")
         print(f"{'='*60}\n")
 
     def capture_template(self):

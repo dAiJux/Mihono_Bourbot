@@ -28,6 +28,9 @@ class DetectionMixin:
         if screenshot is None:
             screenshot = self.take_screenshot()
 
+        if self.find_template("recreation_popup", screenshot, 0.70):
+            return GameScreen.RECREATION
+
         if self.find_template("buy_skill", screenshot, 0.82) or \
            self.find_template("learn_btn", screenshot, 0.72) or \
            self.find_template("confirm_btn", screenshot, 0.72):

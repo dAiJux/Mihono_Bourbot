@@ -105,6 +105,7 @@ REQUIRED_TEMPLATES = [
     "type_power",
     "type_guts",
     "type_wit",
+    "type_pal",
     "unity_training",
     "spirit_burst",
     "blue_burst",

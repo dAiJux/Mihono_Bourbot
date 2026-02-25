@@ -276,14 +276,76 @@ class TrainingMixin:
             return
         self.wait(0.5)
 
+    def _handle_pal_recreation_popup(self) -> bool:
+        screenshot = self.vision.take_screenshot()
+
+        if not self.vision.find_template("recreation_popup", screenshot, 0.70):
+            return False
+
+        self.logger.info("PAL recreation popup detected — analysing rows...")
+
+        popup_pos = self.vision.find_template("recreation_popup", screenshot, 0.70)
+        click_x = popup_pos[0] if popup_pos else None
+
+        empty_arrows = self.vision.find_all_template("arrow_empty", screenshot, 0.65, min_distance=15)
+        filled_arrows = self.vision.find_all_template("arrow_filled", screenshot, 0.80, min_distance=15)
+
+        EXCLUSION_DIST = 20
+        empty_arrows = [
+            ep for ep in empty_arrows
+            if not any(abs(ep[0] - fp[0]) <= EXCLUSION_DIST and abs(ep[1] - fp[1]) <= EXCLUSION_DIST
+                       for fp in filled_arrows)
+        ]
+
+        if empty_arrows:
+            sorted_arrows = sorted(empty_arrows, key=lambda p: p[1])
+            rows, cur = [], [sorted_arrows[0]]
+            for pt in sorted_arrows[1:]:
+                if abs(pt[1] - cur[-1][1]) <= 50:
+                    cur.append(pt)
+                else:
+                    rows.append(cur)
+                    cur = [pt]
+            rows.append(cur)
+
+            if click_x is None:
+                click_x = int(sum(p[0] for p in rows[0]) / len(rows[0]))
+            click_y = int(sum(p[1] for p in rows[0]) / len(rows[0]))
+            self.logger.info(f"  {len(rows)} PAL row(s) — clicking topmost at ({click_x}, {click_y})")
+            self.click_with_offset(click_x, click_y)
+            self.wait(0.8)
+            return True
+
+        trainee_pos = self.vision.find_template("trainee_uma", screenshot, 0.70)
+        if trainee_pos:
+            self.logger.info(f"All PAL recreations complete — falling back to trainee row at {trainee_pos}")
+            self.click_with_offset(*trainee_pos)
+            self.wait(0.8)
+            return True
+
+        self.logger.warning("PAL popup detected but no arrows or trainee label — cancelling")
+        cancel_pos = self.vision.find_template("btn_cancel", screenshot, 0.70)
+        if cancel_pos:
+            self.click_with_offset(*cancel_pos)
+            self.wait(0.5)
+        return False
+
     def execute_recreation_action(self):
         self.logger.info("Executing RECREATION action...")
         screenshot = self.vision.take_screenshot()
         if not self.click_button("btn_recreation", screenshot):
             self.logger.error("Cannot find Recreation button")
             return
-        self.wait(0.5)
-        self._handle_scheduled_race_popup()
+        self.wait(0.8)
+
+        if self._handle_scheduled_race_popup():
+            return
+
+        if self._handle_pal_recreation_popup():
+            self.logger.info("PAL special recreation selected")
+            return
+
+        self.logger.info("No PAL popup — standard recreation")
 
     def execute_rainbow_training(self):
         self.logger.info("Executing RAINBOW TRAINING action...")
