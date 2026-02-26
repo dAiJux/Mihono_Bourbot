@@ -139,6 +139,8 @@ REQUIRED_TEMPLATES = [
     "confirm_btn",
 ]
 
+LIBS_DIR = os.path.join(_BASE_DIR, "libs")
+
 REQUIRED_PACKAGES = {
     "cv2": "opencv-python",
     "numpy": "numpy",

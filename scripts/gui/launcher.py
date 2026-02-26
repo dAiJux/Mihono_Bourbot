@@ -84,6 +84,8 @@ class BotLauncher(tk.Tk):
     def _apply_icon(self):
         ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
         if not os.path.exists(ico_path):
+            ico_path = os.path.join(os.getcwd(), "assets", "logo.ico")
+        if not os.path.exists(ico_path):
             return
         try:
             from PIL import Image, ImageTk
@@ -100,7 +102,10 @@ class BotLauncher(tk.Tk):
             self.iconphoto(True, photo)
             self._icon_img = photo
         except Exception:
-            pass
+            try:
+                self.iconbitmap(default=ico_path)
+            except Exception:
+                pass
 
     def _setup_styles(self):
         style = ttk.Style(self)

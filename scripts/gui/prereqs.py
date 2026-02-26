@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import os
 import re
 import sys
@@ -14,9 +16,9 @@ if __name__ == "__main__" or __package__ is None:
         os.path.abspath(__file__)))))
     os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
-    from scripts.gui.config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES
+    from scripts.gui.config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES, LIBS_DIR
 else:
-    from .config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES
+    from .config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES, LIBS_DIR
 
 _BG       = "#1e1e2e"
 _BG_ALT   = "#252538"
@@ -32,19 +34,58 @@ _CARD_BG  = "#2a2a3d"
 
 _MIN_PYTHON = (3, 8)
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-_EASYOCR_PKG_ESTIMATE = 45
+
+def bootstrap_libs():
+    libs = Path(LIBS_DIR)
+    if not libs.exists():
+        return
+    for d in (libs, libs / "win32", libs / "win32com", libs / "win32comext"):
+        s = str(d)
+        if d.exists() and s not in sys.path:
+            sys.path.insert(0, s)
+    pysys32 = libs / "pywin32_system32"
+    if pysys32.exists():
+        if hasattr(os, "add_dll_directory"):
+            try:
+                os.add_dll_directory(str(pysys32))
+            except Exception:
+                pass
+        os.environ["PATH"] = (
+            str(pysys32) + os.pathsep + os.environ.get("PATH", "")
+        )
 
 def _check_easyocr() -> bool:
-    try:
-        import easyocr
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("easyocr") is not None
 
 def _check_python_version() -> bool:
     return sys.version_info >= _MIN_PYTHON
 
+def _run_pywin32_postinstall():
+    try:
+        import shutil as _shutil
+        libs = Path(LIBS_DIR)
+        pysys32 = libs / "pywin32_system32"
+        pysys32.mkdir(exist_ok=True)
+        for candidate_dir in (libs / "pywin32_system32", libs / "win32"):
+            if not candidate_dir.exists():
+                continue
+            for fname in os.listdir(candidate_dir):
+                if fname.lower().endswith(".dll"):
+                    src = candidate_dir / fname
+                    dst = pysys32 / fname
+                    if not dst.exists():
+                        _shutil.copy2(str(src), str(dst))
+        if hasattr(os, "add_dll_directory"):
+            try:
+                os.add_dll_directory(str(pysys32))
+            except Exception:
+                pass
+        os.environ["PATH"] = str(pysys32) + os.pathsep + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
 def check_prerequisites():
+    bootstrap_libs()
     issues = {
         "python_version": None,
         "python_packages": [],
@@ -57,7 +98,12 @@ def check_prerequisites():
             f".{sys.version_info.micro}"
         )
     for module, pip_name in REQUIRED_PACKAGES.items():
-        if importlib.util.find_spec(module) is None:
+        spec = importlib.util.find_spec(module)
+        if spec is None and pip_name == "pywin32":
+            _run_pywin32_postinstall()
+            bootstrap_libs()
+            spec = importlib.util.find_spec(module)
+        if spec is None:
             issues["python_packages"].append(pip_name)
     if not _check_easyocr():
         issues["easyocr"] = "not_found"
@@ -126,6 +172,136 @@ def _pip_run_with_progress(cmd, set_target, set_msg, on_done, on_error):
             on_error(last_real_error or "Installation failed. Check your internet connection.")
     except Exception as exc:
         on_error(str(exc))
+
+def _patch_distlib_finder():
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        import pip._vendor.distlib.resources as _res
+        import pip._vendor.distlib as _dl
+
+        distlib_dir = os.path.dirname(_dl.__file__)
+        _orig_finder = _res.finder
+
+        class _MinimalFinder:
+            def __init__(self, module):
+                self.module = module
+                self.loader = None
+                pkg_file = getattr(module, "__file__", "") or ""
+                self.pkg_dir = os.path.dirname(pkg_file) if pkg_file else distlib_dir
+                self.base = self.pkg_dir
+
+            def find(self, resource_name):
+                path = os.path.join(self.pkg_dir, resource_name)
+                if os.path.exists(path):
+                    class _FR:
+                        def __init__(self, name, fpath):
+                            self.name = name
+                            self.path = fpath
+                        @property
+                        def bytes(self):
+                            with open(self.path, 'rb') as f:
+                                return f.read()
+                    return _FR(resource_name, path)
+                return None
+
+            def iterator(self, resource_name):
+                base = os.path.join(self.pkg_dir, resource_name) if resource_name else self.pkg_dir
+                if not os.path.isdir(base):
+                    return
+                for fname in os.listdir(base):
+                    r = self.find(os.path.join(resource_name, fname) if resource_name else fname)
+                    if r is not None:
+                        yield r
+
+            def get_cache_info(self, resource):
+                return None, None
+
+        def _safe_finder(package):
+            try:
+                result = _orig_finder(package)
+                if not hasattr(result, 'base'):
+                    result.base = getattr(result, 'pkg_dir', distlib_dir)
+                if not hasattr(result, 'iterator'):
+                    pkg_dir = getattr(result, 'pkg_dir', distlib_dir)
+                    def _iter(resource_name, _d=pkg_dir):
+                        base = os.path.join(_d, resource_name) if resource_name else _d
+                        if not os.path.isdir(base):
+                            return
+                        for fname in os.listdir(base):
+                            fpath = os.path.join(base, fname)
+                            class _FR:
+                                def __init__(self, n, p):
+                                    self.name = n
+                                    self.path = p
+                            yield _FR(fname, fpath)
+                    result.iterator = _iter
+                return result
+            except Exception:
+                mod = sys.modules.get(package)
+                return _MinimalFinder(mod)
+
+        _res.finder = _safe_finder
+
+        scripts_path = os.path.join(distlib_dir, "scripts.py")
+        modname = "pip._vendor.distlib.scripts"
+        for key in list(sys.modules.keys()):
+            if "distlib.scripts" in key:
+                del sys.modules[key]
+        if os.path.isfile(scripts_path):
+            spec = importlib.util.spec_from_file_location(modname, scripts_path)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[modname] = mod
+            spec.loader.exec_module(mod)
+    except Exception:
+        pass
+
+def _pip_run_frozen(pip_args, set_target, set_msg, on_done, on_error):
+    result = {"ok": False, "err": ""}
+    done_evt = threading.Event()
+
+    def _run():
+        try:
+            _patch_distlib_finder()
+            import pip._internal.cli.main as _pip_main
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                try:
+                    rc = _pip_main.main(pip_args)
+                    result["ok"] = (rc == 0)
+                except SystemExit as e:
+                    result["ok"] = (e.code == 0) if isinstance(e.code, int) else True
+        except Exception as e:
+            result["err"] = str(e)
+        finally:
+            done_evt.set()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    milestones = [
+        (10, "Contacting PyPI\u2026"),
+        (25, "Collecting packages\u2026"),
+        (55, "Downloading\u2026"),
+        (80, "Installing\u2026"),
+        (92, "Finalizing\u2026"),
+    ]
+    prog = 2.0
+    mi = 0
+    while not done_evt.wait(0.6):
+        if mi < len(milestones) and prog >= milestones[mi][0] - 6:
+            set_msg(milestones[mi][1])
+            mi += 1
+        prog = min(prog + 1.0, 92)
+        set_target(prog)
+
+    if result["err"]:
+        on_error(result["err"])
+    elif result["ok"]:
+        set_target(100)
+        set_msg("\u2713 Done!")
+        on_done()
+    else:
+        on_error("Installation failed. Check your internet connection.")
 
 class PrerequisiteDialog(tk.Toplevel):
 
@@ -380,6 +556,8 @@ class PrerequisiteDialog(tk.Toplevel):
 
         def _on_done():
             state["done"] = True
+            _run_pywin32_postinstall()
+            bootstrap_libs()
             self.after(0, lambda: (
                 prog_var.set(100),
                 status_lbl.configure(
@@ -394,17 +572,43 @@ class PrerequisiteDialog(tk.Toplevel):
                 self._pkg_btn.configure(state="normal"),
             ))
 
-        threading.Thread(
-            target=_pip_run_with_progress,
-            args=(
-                [sys.executable, "-m", "pip", "install"] + packages,
-                lambda t: state.update({"target": max(state["target"], t)}),
-                lambda m: state.update({"msg": m}),
-                _on_done,
-                _on_error,
-            ),
-            daemon=True,
-        ).start()
+        os.makedirs(LIBS_DIR, exist_ok=True)
+
+        if getattr(sys, "frozen", False):
+            threading.Thread(
+                target=_pip_run_frozen,
+                args=(
+                    [
+                        "install",
+                        "--target", LIBS_DIR,
+                        "--ignore-installed",
+                        "--no-user",
+                        "--no-warn-script-location",
+                        "--disable-pip-version-check",
+                    ] + list(packages),
+                    lambda t: state.update({"target": max(state["target"], t)}),
+                    lambda m: state.update({"msg": m}),
+                    _on_done,
+                    _on_error,
+                ),
+                daemon=True,
+            ).start()
+        else:
+            threading.Thread(
+                target=_pip_run_with_progress,
+                args=(
+                    [
+                        sys.executable, "-m", "pip", "install",
+                        "--target", LIBS_DIR,
+                        "--ignore-installed",
+                    ] + list(packages),
+                    lambda t: state.update({"target": max(state["target"], t)}),
+                    lambda m: state.update({"msg": m}),
+                    _on_done,
+                    _on_error,
+                ),
+                daemon=True,
+            ).start()
 
     def _install_easyocr(self, prog_var, status_lbl):
         self._ocr_btn.configure(state="disabled")
@@ -432,59 +636,110 @@ class PrerequisiteDialog(tk.Toplevel):
         def set_msg(m):
             state["msg"] = m
 
+        def _on_done():
+            state["done"] = True
+            bootstrap_libs()
+            self.after(0, lambda: (
+                prog_var.set(100),
+                status_lbl.configure(
+                    text="\u2713 Done! Click Re-check to continue.", fg=_GREEN),
+                self._ocr_btn.configure(state="normal"),
+            ))
+
+        def _on_error(msg):
+            state["done"] = True
+            if "WinError 5" in msg or "Access is denied" in msg:
+                display = (
+                    "Permission denied. Try running the bot as Administrator "
+                    "(right-click \u2192 Run as administrator)."
+                )
+            else:
+                display = msg or "Installation failed. Check your internet connection."
+            self.after(0, lambda m=display: (
+                status_lbl.configure(text=f"\u2717 {m}", fg=_RED),
+                self._ocr_btn.configure(state="normal"),
+            ))
+
+        os.makedirs(LIBS_DIR, exist_ok=True)
+
         def _run():
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
-                capture_output=True, creationflags=_NO_WINDOW,
-            )
-            set_target(3)
+            set_target(2)
             set_msg("Installing PyTorch (CPU)\u2026")
             torch_error = [None]
-            _pip_run_with_progress(
-                [
-                    sys.executable, "-m", "pip", "install",
-                    "--index-url", "https://download.pytorch.org/whl/cpu",
-                    "torch", "torchvision",
-                ],
-                lambda t: set_target(3 + t * 0.55),
-                set_msg,
-                lambda: None,
-                lambda e: torch_error.__setitem__(0, e),
-            )
+
+            if getattr(sys, "frozen", False):
+                _pip_run_frozen(
+                    [
+                        "install",
+                        "--target", LIBS_DIR,
+                        "--ignore-installed",
+                        "--no-user",
+                        "--no-warn-script-location",
+                        "--disable-pip-version-check",
+                        "--index-url", "https://download.pytorch.org/whl/cpu",
+                        "torch", "torchvision",
+                    ],
+                    lambda t: set_target(2 + t * 0.55),
+                    set_msg,
+                    lambda: None,
+                    lambda e: torch_error.__setitem__(0, e),
+                )
+            else:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
+                    capture_output=True, creationflags=_NO_WINDOW,
+                )
+                set_target(3)
+                _pip_run_with_progress(
+                    [
+                        sys.executable, "-m", "pip", "install",
+                        "--target", LIBS_DIR,
+                        "--ignore-installed",
+                        "--index-url", "https://download.pytorch.org/whl/cpu",
+                        "torch", "torchvision",
+                    ],
+                    lambda t: set_target(3 + t * 0.55),
+                    set_msg,
+                    lambda: None,
+                    lambda e: torch_error.__setitem__(0, e),
+                )
+
             if torch_error[0]:
                 _on_error(torch_error[0])
                 return
+
             set_target(60)
             set_msg("Installing EasyOCR\u2026")
-            def _on_done():
-                state["done"] = True
-                self.after(0, lambda: (
-                    prog_var.set(100),
-                    status_lbl.configure(
-                        text="\u2713 Done! Click Re-check to continue.", fg=_GREEN),
-                    self._ocr_btn.configure(state="normal"),
-                ))
-            def _on_error(msg):
-                state["done"] = True
-                if "WinError 5" in msg or "Access is denied" in msg:
-                    display = (
-                        "Permission denied. Try running the bot as Administrator "
-                        "(right-click \u2192 Run as administrator)."
-                    )
-                else:
-                    display = msg or "Installation failed. Check your internet connection."
-                self.after(0, lambda m=display: (
-                    status_lbl.configure(text=f"\u2717 {m}", fg=_RED),
-                    self._ocr_btn.configure(state="normal"),
-                ))
-            _pip_run_with_progress(
-                [sys.executable, "-m", "pip", "install",
-                 "easyocr", "rapidfuzz"],
-                lambda t: set_target(60 + t * 0.40),
-                set_msg,
-                _on_done,
-                _on_error,
-            )
+
+            if getattr(sys, "frozen", False):
+                _pip_run_frozen(
+                    [
+                        "install",
+                        "--target", LIBS_DIR,
+                        "--ignore-installed",
+                        "--no-user",
+                        "--no-warn-script-location",
+                        "--disable-pip-version-check",
+                        "easyocr", "rapidfuzz",
+                    ],
+                    lambda t: set_target(60 + t * 0.40),
+                    set_msg,
+                    _on_done,
+                    _on_error,
+                )
+            else:
+                _pip_run_with_progress(
+                    [
+                        sys.executable, "-m", "pip", "install",
+                        "--target", LIBS_DIR,
+                        "--ignore-installed",
+                        "easyocr", "rapidfuzz",
+                    ],
+                    lambda t: set_target(60 + t * 0.40),
+                    set_msg,
+                    _on_done,
+                    _on_error,
+                )
 
         threading.Thread(target=_run, daemon=True).start()
 
