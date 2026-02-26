@@ -30,9 +30,12 @@ wheels/
 logs/
 *.log
 
-# Configurations personnelles
+# Personal config
 config_custom.json
 *.local.json
+updater_token.txt
+_token_data.py
+*.spec
 
 # IDE
 .vscode/
@@ -46,10 +49,10 @@ config_custom.json
 Thumbs.db
 desktop.ini
 
-# Screenshots de debug
+# Debug screenshots
 debug_*.png
 error_*.png
 
-# Données temporaires
+# Temporary files
 *.tmp
 *.temp

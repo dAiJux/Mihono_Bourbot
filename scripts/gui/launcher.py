@@ -20,11 +20,12 @@ if __name__ == "__main__" or __package__ is None:
         os.path.abspath(__file__)))))
     os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
-    from scripts.gui.config import CONFIG_PATH, DEFAULT_CONFIG, REQUIRED_TEMPLATES
+    from scripts.gui.config import CONFIG_PATH, DEFAULT_CONFIG
     from scripts.gui.prereqs import _check_easyocr, check_prerequisites, PrerequisiteDialog
 else:
-    from .config import CONFIG_PATH, DEFAULT_CONFIG, REQUIRED_TEMPLATES
+    from .config import CONFIG_PATH, DEFAULT_CONFIG
     from .prereqs import _check_easyocr, check_prerequisites, PrerequisiteDialog
+    from updater import check_update_async
 
 class _GuiLogHandler(logging.Handler):
 
@@ -81,6 +82,7 @@ class BotLauncher(tk.Tk):
         self.update_idletasks()
         self.deiconify()
         self.after(200, self._check_prerequisites_on_start)
+        self.after(4000, lambda: check_update_async(self))
     def _apply_icon(self):
         ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
         if not os.path.exists(ico_path):
@@ -243,6 +245,11 @@ class BotLauncher(tk.Tk):
             messagebox.showerror("Error", "Failed to save config:\n" + str(e))
 
     def _build_ui(self):
+        try:
+            from updater import get_current_version
+            _ver = get_current_version()
+        except Exception:
+            _ver = "?.?.?"
         header = tk.Frame(self, bg=self.BG)
         header.pack(fill="x", padx=16, pady=(12, 4))
         tk.Label(
@@ -250,7 +257,7 @@ class BotLauncher(tk.Tk):
             bg=self.BG, fg=self.ACCENT,
         ).pack(side="left")
         tk.Label(
-            header, text="v1.0.0", font=("Segoe UI", 10),
+            header, text=f"{_ver}", font=("Segoe UI", 10),
             bg=self.BG, fg=self.FG_DIM,
         ).pack(side="left", padx=(8, 0), pady=(5, 0))
 

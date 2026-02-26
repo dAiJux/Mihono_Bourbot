@@ -1,33 +1,52 @@
-import PyInstaller.__main__
 import os
 import shutil
+import secrets
 import sys
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.chdir(ROOT)
+import PyInstaller.__main__
 
-print("Building Mihono Bourbot.exe ...")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.chdir(_ROOT)
+
+print("Building Mihono Bourbot...")
 print("Heavy dependencies will be downloaded at first launch (not bundled).")
 print("This may take a few minutes.\n")
 
-ICO = os.path.join(ROOT, "assets", "logo.ico")
-PYTHON_EXE = sys.executable
+TOKEN_FILE = "updater_token.txt"
+TOKEN_DATA_FILE = "_token_data.py"
+
+token_path = Path(TOKEN_FILE)
+if not token_path.exists():
+    print(f"[WARN] {TOKEN_FILE} not found — updater will work without auth (public releases only).")
+    token_bytes = b""
+else:
+    token_bytes = token_path.read_text(encoding="utf-8").strip().encode("utf-8")
+    print(f"[OK]   Token loaded ({len(token_bytes)} chars), embedding encrypted.")
+
+key = secrets.token_bytes(len(token_bytes)) if token_bytes else b""
+enc = bytes(b ^ k for b, k in zip(token_bytes, key))
+
+with open(TOKEN_DATA_FILE, "w", encoding="utf-8") as f:
+    f.write(f"_ENC = {list(enc)}\n")
+    f.write(f"_KEY = {list(key)}\n")
+
+print("[OK]   Token data written to temporary module.\n")
 
 PyInstaller.__main__.run([
-    "scripts/__main__.py",
+    os.path.join(_ROOT, "scripts", "__main__.py"),
     "--name=Mihono Bourbot",
     "--onedir",
     "--windowed",
-    f"--icon={ICO}",
-    f"--add-data=assets{os.pathsep}assets",
+    "--icon=assets/logo.ico",
+    f"--add-data={os.path.join(_ROOT, 'assets')}{os.pathsep}assets",
     "--hidden-import=scripts",
     "--hidden-import=scripts.gui",
     "--hidden-import=scripts.gui.config",
     "--hidden-import=scripts.gui.prereqs",
     "--hidden-import=scripts.gui.launcher",
-    "--hidden-import=scripts.gui.debug_pip",
+    "--hidden-import=updater",
     "--collect-all=pip",
-    "--copy-metadata=pip",
     "--exclude-module=cv2",
     "--exclude-module=numpy",
     "--exclude-module=easyocr",
@@ -49,14 +68,30 @@ PyInstaller.__main__.run([
     "--clean",
 ])
 
-dist_dir = os.path.join("dist", "Mihono Bourbot")
+print("\n[BUILD] Building Updater.exe ...\n")
 
-spec_file = "Mihono Bourbot.spec"
-if os.path.exists(spec_file):
-    os.remove(spec_file)
-for item in ["config", "templates", "assets"]:
+PyInstaller.__main__.run([
+    os.path.join(_ROOT, "updater.py"),
+    "--name=Updater",
+    "--onefile",
+    "--windowed",
+    "--icon=assets/logo.ico",
+    "--hidden-import=_token_data",
+    f"--add-data={os.path.join(_ROOT, TOKEN_DATA_FILE)}{os.pathsep}.",
+    "--noconfirm",
+    "--clean",
+])
+
+if Path(TOKEN_DATA_FILE).exists():
+    os.remove(TOKEN_DATA_FILE)
+    print("[OK]   Temporary token module deleted.")
+
+dist_bot = os.path.join("dist", "Mihono Bourbot")
+updater_exe = os.path.join("dist", "Updater.exe")
+
+for item in ["config", "templates", "assets", "version.txt"]:
     src = item
-    dst = os.path.join(dist_dir, item)
+    dst = os.path.join(dist_bot, item)
     if os.path.isdir(src):
         if os.path.exists(dst):
             shutil.rmtree(dst)
@@ -64,10 +99,20 @@ for item in ["config", "templates", "assets"]:
     elif os.path.isfile(src):
         shutil.copy2(src, dst)
 
-os.makedirs(os.path.join(dist_dir, "logs", "debug"), exist_ok=True)
-os.makedirs(os.path.join(dist_dir, "libs"), exist_ok=True)
+if os.path.exists(updater_exe):
+    shutil.copy2(updater_exe, os.path.join(dist_bot, "Updater.exe"))
+    shutil.rmtree(os.path.join("dist", "Updater"), ignore_errors=True)
+    os.remove(updater_exe)
+    print("[OK]   Updater.exe moved to bot folder.")
 
-readme_path = os.path.join(dist_dir, "README.txt")
+os.makedirs(os.path.join(dist_bot, "logs", "debug"), exist_ok=True)
+os.makedirs(os.path.join(dist_bot, "libs"), exist_ok=True)
+
+for spec in ["Mihono Bourbot.spec", "Updater.spec"]:
+    if os.path.exists(spec):
+        os.remove(spec)
+
+readme_path = os.path.join(dist_bot, "README.txt")
 with open(readme_path, "w", encoding="utf-8") as f:
     f.write("""\
 ================================================================================
@@ -86,28 +131,24 @@ GETTING STARTED
   3. Open your game in a visible window (emulator or DMM player).
 
   4. The bot will then ask you to capture templates.
-     Templates are small screenshots of game UI buttons/icons that the bot
-     uses to identify what is on screen. Follow the on-screen instructions.
+     Follow the on-screen instructions.
 
   5. Configure your preferences in the Settings tab, then click Start.
 
-PREREQUISITES
--------------
+UPDATING
+--------
 
-  - Windows 10/11 (64-bit)
-  - Internet connection (first launch only, for component download)
-  - The game must be running in a visible window (not minimised)
-  - No Python installation required — everything is self-contained
+  Run Updater.exe to check for and apply updates automatically.
 
 FOLDER STRUCTURE
 ----------------
 
-  Mihono Bourbot.exe   Main application (double-click to start)
-  libs/          Downloaded components (populated on first launch)
+  Mihono Bourbot.exe   Main application
+  Updater.exe          Update checker
+  libs/              Downloaded components (populated on first launch)
   config/            Configuration files & event database
   templates/         Template images captured from your game
   logs/              Runtime logs & debug screenshots
-  README.txt         This file
 
 CONTROLS (while the bot is running)
 -----------------------------------
@@ -121,7 +162,6 @@ TROUBLESHOOTING
   - Components not downloading: check your internet connection and firewall.
   - "No game window found": make sure the game is open and visible.
   - Templates not matching: re-capture templates via the GUI.
-  - Bot clicks wrong spots: use the Calibrate tool in the GUI Settings tab.
   - To force re-download of components: delete the libs/ folder and restart.
 
 ================================================================================
@@ -130,13 +170,12 @@ TROUBLESHOOTING
 print("\n" + "=" * 60)
 print("BUILD COMPLETE!")
 print("=" * 60)
-print(f"\nOutput folder: {os.path.abspath(dist_dir)}")
+print(f"\nOutput folder: {os.path.abspath(dist_bot)}")
 print("\nContents:")
-print("  Mihono Bourbot.exe   <- Double-click to launch (~50 MB)")
-print("  libs/          <- Populated automatically on first launch")
-print("  config/            <- Configuration & event database")
-print("  templates/         <- Your template images")
-print("  logs/              <- Debug screenshots & logs")
-print("  README.txt         <- How to get started")
-print("\nShare the entire 'Mihono Bourbot' folder (zip it first).")
-print("Users do NOT need Python installed — setup runs automatically.")
+print("  Mihono Bourbot.exe   <- Main bot (~50 MB)")
+print("  Updater.exe          <- Update checker")
+print("  libs/              <- Populated on first launch")
+print("  config/            <- Configuration")
+print("  templates/         <- Game templates")
+print("  README.txt")
+print("\nThe token is compiled into Updater.exe — no external token file.")
