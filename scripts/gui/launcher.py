@@ -82,49 +82,23 @@ class BotLauncher(tk.Tk):
         self.deiconify()
         self.after(200, self._check_prerequisites_on_start)
     def _apply_icon(self):
-        import tempfile
+        ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
+        if not os.path.exists(ico_path):
+            return
         try:
             from PIL import Image, ImageTk
-            ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
-            png_path = get_resource_path(os.path.join("assets", "logo.png"))
-            source_img = None
-            if os.path.exists(png_path):
-                source_img = Image.open(png_path).convert("RGBA")
-            elif os.path.exists(ico_path):
-                raw = Image.open(ico_path)
-                best_frame = raw.copy()
-                try:
-                    for i in range(getattr(raw, "n_frames", 1)):
-                        raw.seek(i)
-                        if raw.size[0] > best_frame.size[0]:
-                            best_frame = raw.copy()
-                except Exception:
-                    pass
-                source_img = best_frame.convert("RGBA")
-            if source_img is None:
-                return
-            gen_ico = tempfile.NamedTemporaryFile(suffix=".ico", delete=False)
-            gen_ico.close()
-            icon_sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-            frames = [source_img.resize(s, Image.LANCZOS) for s in icon_sizes]
-            frames[0].save(
-                gen_ico.name,
-                format="ICO",
-                sizes=icon_sizes,
-                append_images=frames[1:],
-            )
-            self.iconbitmap(default=gen_ico.name)
-            photo = ImageTk.PhotoImage(frames[-1])
+            raw = Image.open(ico_path)
+            best = raw.copy().convert("RGBA")
+            try:
+                for i in range(1, getattr(raw, "n_frames", 1)):
+                    raw.seek(i)
+                    if raw.size[0] > best.size[0]:
+                        best = raw.copy().convert("RGBA")
+            except Exception:
+                pass
+            photo = ImageTk.PhotoImage(best.resize((256, 256), Image.LANCZOS))
             self.iconphoto(True, photo)
             self._icon_img = photo
-            self._gen_ico_path = gen_ico.name
-            return
-        except Exception:
-            pass
-        try:
-            ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
-            if os.path.exists(ico_path):
-                self.iconbitmap(default=ico_path)
         except Exception:
             pass
 
