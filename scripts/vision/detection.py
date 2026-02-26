@@ -552,6 +552,30 @@ class DetectionMixin:
         self.logger.info(f"Goal race detected at y={best_cy} (orange px = {best_count})")
         return (cx, cy)
 
+    def detect_card_types_with_pal(self, screenshot: np.ndarray) -> list:
+        return self.detect_card_types(screenshot)
+
+    def count_support_friendship_leveled(self, screenshot: np.ndarray) -> dict:
+        bar_info = self._count_support_bars(screenshot)
+        icons = self._detect_type_icons(screenshot)
+
+        partial = 0
+        orange_plus = 0
+        pal_orange = 0
+        pal_present = any(t == "pal" for _, t, _ in icons)
+
+        for i, (_, _, bar_type) in enumerate(bar_info["bars"]):
+            icon_type = icons[i][1] if i < len(icons) else "unknown"
+            if bar_type in ("orange", "gold"):
+                if icon_type == "pal":
+                    pal_orange += 1
+                else:
+                    orange_plus += 1
+            elif bar_type in ("green", "blue"):
+                partial += 1
+
+        return {"partial": partial, "orange_plus": orange_plus, "pal_orange": pal_orange, "pal": 1 if pal_present else 0}
+
     def find_race_select_button(self, screenshot: Optional[np.ndarray] = None) -> Optional[Tuple[int, int]]:
         if screenshot is None:
             screenshot = self.take_screenshot()

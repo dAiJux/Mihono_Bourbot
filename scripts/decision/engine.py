@@ -156,7 +156,11 @@ class EngineMixin:
     ) -> Dict:
         friendship_pts = 9 if is_pre_summer else 5
 
-        friend_count = self.vision.count_support_friendship(screenshot)
+        levels = self.vision.count_support_friendship_leveled(screenshot)
+        partial_count = levels["partial"]
+        orange_plus_count = levels["orange_plus"]
+        pal_orange_count = levels["pal_orange"]
+        pal_count = levels["pal"]
 
         bursts = self.vision.detect_burst_training(screenshot)
         b = len(bursts.get("blue", []))
@@ -164,7 +168,13 @@ class EngineMixin:
 
         r = self.vision.count_rainbows_for_training(screenshot, stat)
 
-        base_score = r * 10 + b * 8 + w * 3 + friend_count * friendship_pts
+        base_score = (
+            r * 10 + b * 8 + w * 3
+            + partial_count * friendship_pts
+            + orange_plus_count * 2
+            + pal_orange_count * 1
+        )
+        friend_count = partial_count + orange_plus_count + pal_orange_count
         bonus_types = sum([r > 0, b > 0, w > 0, friend_count > 0])
 
         secondary_bonus = 0.0
@@ -190,7 +200,8 @@ class EngineMixin:
         score = base_score + secondary_bonus * 3
 
         self.logger.info(
-            f"  {stat}: R={r} B={b} W={w} F={friend_count} "
+            f"  {stat}: R={r} B={b} W={w} "
+            f"F_partial={partial_count} F_orange+={orange_plus_count} F_pal_orange={pal_orange_count} "
             f"secondary={secondary_bonus:.1f} → {score:.0f}pts"
         )
 
@@ -348,40 +359,3 @@ class EngineMixin:
             self.logger.warning(f"Turn limit reached ({turn_count} >= {max_turns})")
             return False
         return True
-
-    def evaluate_training_option(
-        self, training_type: str, stats_gain: Dict[str, int],
-        current_stats: Optional[Dict[str, int]] = None,
-    ) -> float:
-        score = 0.0
-        n = len(self.stat_priority)
-        priority_weights = {
-            s: 1.0 + (n - i) * 0.4 for i, s in enumerate(self.stat_priority)
-        }
-        gains = self.TRAINING_STAT_GAINS.get(training_type, {})
-
-        for stat, gain in stats_gain.items():
-            weight = priority_weights.get(stat, 0.5)
-            if current_stats:
-                projected = min(
-                    current_stats.get(stat, 0) + self.END_OF_RUN_BONUS,
-                    self.STAT_CAP,
-                )
-                target = self.targets.get(stat, 0)
-                deficit = max(0, target - projected)
-                if deficit > 0:
-                    score += gain * weight * (1.0 + deficit / max(target, 1))
-                else:
-                    if current_stats.get(stat, 0) + gain > self.STAT_CAP:
-                        score -= gain * 0.5
-                    else:
-                        score += gain * 0.3
-            else:
-                score += gain * weight
-
-        for stat, contribution in gains.items():
-            if stat not in stats_gain:
-                prio = priority_weights.get(stat, 0.5)
-                score += contribution * prio * 0.5
-
-        return score

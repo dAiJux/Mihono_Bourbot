@@ -19,10 +19,6 @@ COLORS = {
     "rainbow":        (0, 215, 255),
     "white_burst":    (255, 255, 255),
     "blue_burst":     (255, 180, 0),
-    "friend_partial": (0, 255, 128),
-    "friend_orange":  (0, 165, 255),
-    "friend_max":     (0, 255, 0),
-    "friend_burst":   (0, 255, 255),
     "bar_blue":       (255, 180, 0),
     "bar_green":      (0, 255, 128),
     "bar_orange":     (0, 165, 255),
@@ -46,12 +42,6 @@ TRAINING_DETECT_DEFS = [
     ("icon_rainbow",      "rainbow",        0.75),
 ]
 
-FRIENDSHIP_DETECT_DEFS = [
-    ("friend_bar_partial","friend_partial",  0.70),
-    ("friend_bar_orange", "friend_orange",   0.70),
-    ("friend_bar_max",    "friend_max",      0.70),
-    ("friend_bar_burst",  "friend_burst",    0.70),
-]
 
 TRAINING_ICONS = [
     "training_speed", "training_stamina", "training_power",
@@ -157,6 +147,7 @@ class VisualDebugTool:
         if self.screen in (GameScreen.MAIN, GameScreen.UNKNOWN):
             self._detect_buttons(ss, gx, gw, MAIN_BUTTONS, "main_btn")
             self._detect_infirmary(ss, gx, gw)
+            self._detect_friendship_bars(ss)
 
         if self.screen in (GameScreen.TRAINING, GameScreen.UNKNOWN):
             self._detect_training_items(ss, gx, gy, gw, gh)
@@ -271,9 +262,9 @@ class VisualDebugTool:
             f"({', '.join(t for _, _, t in bar_info['bars'])})"
         )
 
-        card_types = self.vision.detect_card_types(ss)
+        card_types = self.vision.detect_card_types_with_pal(ss)
         abbrevs = {"speed": "Spe", "stamina": "Sta", "power": "Pow",
-                   "guts": "Gut", "wit": "Wit", "unknown": "?"}
+                   "guts": "Gut", "wit": "Wit", "pal": "PAL", "unknown": "?"}
         if card_types:
             ct_str = " | ".join(abbrevs.get(ct, ct) for ct in card_types)
             self.info_lines.append(f"Card types: {ct_str}")
@@ -298,7 +289,11 @@ class VisualDebugTool:
                         and ctype == selected_training
                     )
                     abbrev = abbrevs.get(ctype, ctype)
-                    if is_orange and matches_training:
+                    if ctype == "pal":
+                        self.info_lines.append(
+                            f"  card {i+1}: PAL ({bcolor}, no rainbow possible)"
+                        )
+                    elif is_orange and matches_training:
                         rainbow_count += 1
                         self.info_lines.append(
                             f"  >> RAINBOW card {i+1}: {abbrev} ({bcolor} + matches)"
@@ -339,6 +334,13 @@ class VisualDebugTool:
                     color=COLORS["training_icon"],
                     x=pos[0], y=pos[1], cat="train_icon"))
                 self.info_lines.append(f"  icon {short} at {pos}")
+
+        self._detect_friendship_bars(ss)
+        levels = self.vision.count_support_friendship_leveled(ss)
+        self.info_lines.append(
+            f"Friendship: partial={levels['partial']} orange+={levels['orange_plus']}"
+            f" pal_orange={levels['pal_orange']} pal={'yes' if levels['pal'] else 'no'}"
+        )
 
     def _detect_selected_training(self, ss, gx, gy, gw, gh):
         """Detect which training column is currently selected.
@@ -385,6 +387,22 @@ class VisualDebugTool:
             self.detections.append(dict(
                 type="point", label=n[:3].upper(),
                 color=(255, 255, 255), x=cx, y=cy, cat="train_pos"))
+
+    def _detect_friendship_bars(self, ss):
+        bar_info = self.vision._count_support_bars(ss)
+        sr = self.vision._calibration.get("support_region", {})
+        if not sr or not bar_info["bars"]:
+            return
+        gx, gy, gw, gh = self.vision.get_game_rect(ss)
+        sx1 = gx + int(gw * sr["x1"])
+        sy1 = gy + int(gh * sr["y1"])
+        sx2 = gx + int(gw * sr["x2"])
+        for y_start, y_end, btype in bar_info["bars"]:
+            band_color = COLORS.get(f"bar_{btype}", (200, 200, 200))
+            self.detections.append(dict(
+                type="rect", label=f"bar:{btype}", color=band_color,
+                x1=sx1, y1=sy1 + y_start, x2=sx2, y2=sy1 + y_end,
+                cat="friendship"))
 
     def _detect_infirmary(self, ss, gx, gw):
         best_label = None

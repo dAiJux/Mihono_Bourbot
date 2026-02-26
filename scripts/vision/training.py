@@ -114,7 +114,7 @@ class TrainingAnalysisMixin:
                     if np.sum(sat_mask) < 10:
                         continue
                     med_hue = float(np.median(patch[:, :, 0][sat_mask]))
-                    if not self._verify_type_hue(type_name, med_hue):
+                    if type_name != "pal" and not self._verify_type_hue(type_name, med_hue):
                         continue
 
                     all_matches.append((cy, type_name, score))
