@@ -16,9 +16,9 @@ if __name__ == "__main__" or __package__ is None:
         os.path.abspath(__file__)))))
     os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__)))))
-    from scripts.gui.config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES, LIBS_DIR
+    from scripts.gui.config import REQUIRED_TEMPLATES, LIBS_DIR, _load_required_packages
 else:
-    from .config import REQUIRED_TEMPLATES, REQUIRED_PACKAGES, LIBS_DIR
+    from .config import REQUIRED_TEMPLATES, LIBS_DIR, _load_required_packages
 
 _BG       = "#1e1e2e"
 _BG_ALT   = "#252538"
@@ -97,7 +97,7 @@ def check_prerequisites():
             f"{sys.version_info.major}.{sys.version_info.minor}"
             f".{sys.version_info.micro}"
         )
-    for module, pip_name in REQUIRED_PACKAGES.items():
+    for module, pip_name in _load_required_packages().items():
         spec = importlib.util.find_spec(module)
         if spec is None and pip_name == "pywin32":
             _run_pywin32_postinstall()
@@ -455,7 +455,7 @@ class PrerequisiteDialog(tk.Toplevel):
 
     def _build_packages_card(self, packages):
         _, body = self._make_card(
-            self._content, "Missing Dependencies", "\U0001F4E6"
+            self._content, f"Missing Dependencies ({len(packages)})", "\U0001F4E6"
         )
         tk.Label(
             body,

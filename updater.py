@@ -63,7 +63,7 @@ def check_for_update():
                 return {
                     "tag": tag,
                     "notes": data.get("body", ""),
-                    "url": zip_asset["browser_download_url"],
+                    "url": zip_asset["url"],
                     "size": zip_asset["size"],
                 }
     except Exception:
@@ -148,10 +148,9 @@ class UpdateDialog(tk.Toplevel):
             tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
             tmp.close()
 
-            headers = {"User-Agent": "MihonoBourbot-Updater"}
+            headers = {"User-Agent": "MihonoBourbot-Updater", "Accept": "application/octet-stream"}
             if _TOKEN:
                 headers["Authorization"] = f"token {_TOKEN}"
-                headers["Accept"] = "application/octet-stream"
 
             total = self._info["size"]
             downloaded = 0
@@ -180,20 +179,25 @@ class UpdateDialog(tk.Toplevel):
             if len(inner) == 1 and inner[0].is_dir():
                 src_root = inner[0]
 
-            SKIP = {"libs", "logs"}
-
+            SKIP_DIRS = {"libs", "logs", "_internal"}
+            SKIP_FILES = {"Updater.exe", "Mihono Bourbot.exe"}
             for item in src_root.rglob("*"):
                 if item.is_dir():
                     continue
                 rel = item.relative_to(src_root)
-                if rel.parts[0] in SKIP:
+                if rel.parts[0] in SKIP_DIRS:
+                    continue
+                if item.name in SKIP_FILES:
                     continue
                 dst = root_dir / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                if item.suffix == ".json" and dst.exists():
-                    self._merge_json(item, dst)
-                else:
-                    shutil.copy2(str(item), str(dst))
+                try:
+                    if item.suffix == ".json" and dst.exists():
+                        self._merge_json(item, dst)
+                    else:
+                        shutil.copy2(str(item), str(dst))
+                except Exception:
+                    pass
 
             shutil.rmtree(extract_dir, ignore_errors=True)
             (root_dir / VERSION_FILE).write_text(self._info["tag"], encoding="utf-8")
@@ -203,7 +207,7 @@ class UpdateDialog(tk.Toplevel):
             self.after(0, self._show_restart)
 
         except Exception as e:
-            self.after(0, lambda: self._prog_lbl.set(f"Error: {e}"))
+            self.after(0, lambda err=e: self._prog_lbl.set(f"Error: {err}"))
             self.after(0, lambda: self._update_btn.configure(state="normal"))
 
     def _merge_json(self, src_path, dst_path):
@@ -221,7 +225,7 @@ class UpdateDialog(tk.Toplevel):
     def _deep_merge(self, new, old):
         if not isinstance(new, dict) or not isinstance(old, dict):
             return old
-        result = dict(new)
+        result = dict(old)
         for k, v in new.items():
             if k in old:
                 result[k] = self._deep_merge(v, old[k])
@@ -384,10 +388,9 @@ def _run_standalone():
                     _set_prog(2, "Downloading update...")
                     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
                     tmp.close()
-                    headers = {"User-Agent": "MihonoBourbot-Updater"}
+                    headers = {"User-Agent": "MihonoBourbot-Updater", "Accept": "application/octet-stream"}
                     if _TOKEN:
                         headers["Authorization"] = f"token {_TOKEN}"
-                        headers["Accept"] = "application/octet-stream"
                     total = info["size"]
                     downloaded = 0
                     req = Request(info["url"], headers=headers)
@@ -414,17 +417,20 @@ def _run_standalone():
                     inner = list(src_root.iterdir())
                     if len(inner) == 1 and inner[0].is_dir():
                         src_root = inner[0]
-                    SKIP = {"libs", "logs"}
+                    SKIP_DIRS = {"libs", "logs", "_internal"}
+                    SKIP_FILES = {"Updater.exe", "Mihono Bourbot.exe"}
                     for item in src_root.rglob("*"):
                         if item.is_dir():
                             continue
                         rel = item.relative_to(src_root)
-                        if rel.parts[0] in SKIP:
+                        if rel.parts[0] in SKIP_DIRS:
+                            continue
+                        if item.name in SKIP_FILES:
                             continue
                         dst = root_dir / rel
                         dst.parent.mkdir(parents=True, exist_ok=True)
-                        if item.suffix == ".json" and dst.exists():
-                            try:
+                        try:
+                            if item.suffix == ".json" and dst.exists():
                                 with open(item, "r", encoding="utf-8") as f:
                                     new_d = json.loads(f.read())
                                 with open(dst, "r", encoding="utf-8") as f:
@@ -432,24 +438,26 @@ def _run_standalone():
                                 def _merge(n, o):
                                     if not isinstance(n, dict) or not isinstance(o, dict):
                                         return o
-                                    r = dict(n)
+                                    r = dict(o)
                                     for k, v in n.items():
                                         if k in o:
                                             r[k] = _merge(v, o[k])
+                                        else:
+                                            r[k] = v
                                     return r
                                 with open(dst, "w", encoding="utf-8") as f:
                                     json.dump(_merge(new_d, old_d), f, ensure_ascii=False, indent=2)
-                            except Exception:
+                            else:
                                 shutil.copy2(str(item), str(dst))
-                        else:
-                            shutil.copy2(str(item), str(dst))
+                        except Exception:
+                            pass
                     shutil.rmtree(extract_dir, ignore_errors=True)
                     (root_dir / VERSION_FILE).write_text(info["tag"], encoding="utf-8")
                     _set_prog(100, f"Updated to {info['tag']}!")
                     win.after(0, _show_done)
                 except Exception as e:
-                    win.after(0, lambda: (
-                        prog_lbl.set(f"Error: {e}"),
+                    win.after(0, lambda err=e: (
+                        prog_lbl.set(f"Error: {err}"),
                         update_btn.configure(state="normal"),
                     ))
                     _state["running"] = False

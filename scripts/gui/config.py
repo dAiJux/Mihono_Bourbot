@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -140,11 +141,19 @@ REQUIRED_TEMPLATES = [
 ]
 
 LIBS_DIR = os.path.join(_BASE_DIR, "libs")
+_PACKAGES_JSON = os.path.join(_BASE_DIR, "config", "packages.json")
 
-REQUIRED_PACKAGES = {
-    "cv2": "opencv-python",
-    "numpy": "numpy",
-    "PIL": "Pillow",
-    "win32gui": "pywin32",
-    "keyboard": "keyboard",
-}
+def _load_required_packages():
+    try:
+        with open(_PACKAGES_JSON, "r", encoding="utf-8") as _f:
+            return json.load(_f)
+    except Exception:
+        return {
+            "cv2": "opencv-python",
+            "numpy": "numpy",
+            "PIL": "Pillow",
+            "win32gui": "pywin32",
+            "keyboard": "keyboard",
+        }
+
+REQUIRED_PACKAGES = _load_required_packages()

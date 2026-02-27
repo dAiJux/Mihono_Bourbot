@@ -1,0 +1,7 @@
+{
+    "cv2": "opencv-python",
+    "numpy": "numpy",
+    "PIL": "Pillow",
+    "win32gui": "pywin32",
+    "keyboard": "keyboard"
+}
