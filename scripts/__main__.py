@@ -3,26 +3,31 @@ import os
 import sys
 from pathlib import Path
 
+_dll_handles = []
+
 def _bootstrap_libs():
     if getattr(sys, "frozen", False):
         root = Path(sys.executable).parent
     else:
         root = Path(os.path.dirname(os.path.abspath(__file__))).parent
     libs = root / "libs"
-    if libs.exists():
-        s = str(libs)
-        if s not in sys.path:
+    if not libs.exists():
+        return
+    for s in [str(libs), str(libs / "win32"), str(libs / "win32com"), str(libs / "win32comext")]:
+        if os.path.isdir(s) and s not in sys.path:
             sys.path.insert(0, s)
-        pysys32 = libs / "pywin32_system32"
-        if pysys32.exists():
+    dll_dirs = set()
+    for f in libs.rglob("*.pyd"):
+        dll_dirs.add(f.parent)
+    for f in libs.rglob("*.dll"):
+        dll_dirs.add(f.parent)
+    for d in dll_dirs:
+        try:
             if hasattr(os, "add_dll_directory"):
-                try:
-                    os.add_dll_directory(str(pysys32))
-                except Exception:
-                    pass
-            os.environ["PATH"] = (
-                str(pysys32) + os.pathsep + os.environ.get("PATH", "")
-            )
+                _dll_handles.append(os.add_dll_directory(str(d)))
+            os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+        except Exception:
+            pass
 
 _bootstrap_libs()
 
@@ -33,13 +38,11 @@ else:
 os.chdir(_PROJECT_ROOT)
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Mihono Bourbot -- Umamusume Pretty Derby Bot",
-    )
-    parser.add_argument("--cli", action="store_true", help="Run without GUI")
-    parser.add_argument("--runs", type=int, default=1, help="Number of runs (default: 1)")
-    parser.add_argument("--test", action="store_true", help="Vision test mode")
-    parser.add_argument("--config", type=str, default=os.path.join("config", "config.json"), help="Config path")
+    parser = argparse.ArgumentParser(description="Mihono Bourbot -- Umamusume Pretty Derby Bot")
+    parser.add_argument("--cli", action="store_true")
+    parser.add_argument("--runs", type=int, default=1)
+    parser.add_argument("--test", action="store_true")
+    parser.add_argument("--config", type=str, default=os.path.join("config", "config.json"))
     args = parser.parse_args()
 
     Path("logs").mkdir(exist_ok=True)

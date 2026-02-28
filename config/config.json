@@ -9,11 +9,11 @@
         "fullscreen_fallback": false
     },
     "training_targets": {
-        "speed": 1200,
-        "stamina": 800,
-        "power": 700,
-        "wit": 400,
-        "guts": 400,
+        "speed": 600,
+        "stamina": 600,
+        "power": 600,
+        "wit": 600,
+        "guts": 600,
         "tolerance": 50
     },
     "stat_priority": [

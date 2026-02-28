@@ -55,11 +55,6 @@ DEFAULT_CONFIG = {
     "skill_check_interval": 8,
 }
 
-TESSERACT_PATHS = [
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-]
-
 REQUIRED_TEMPLATES = [
     "btn_training",
     "btn_rest",
@@ -140,7 +135,10 @@ REQUIRED_TEMPLATES = [
     "confirm_btn",
 ]
 
-LIBS_DIR = os.path.join(_BASE_DIR, "libs")
+if getattr(__import__("sys"), "frozen", False):
+    LIBS_DIR = os.path.join(_BASE_DIR, "_internal")
+else:
+    LIBS_DIR = os.path.join(_BASE_DIR, "libs")
 _PACKAGES_JSON = os.path.join(_BASE_DIR, "config", "packages.json")
 
 def _load_required_packages():
@@ -149,7 +147,7 @@ def _load_required_packages():
             return json.load(_f)
     except Exception:
         return {
-            "cv2": "opencv-python",
+            "cv2": "opencv-python-headless",
             "numpy": "numpy",
             "PIL": "Pillow",
             "win32gui": "pywin32",

@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import threading
+import traceback
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from pathlib import Path
@@ -83,6 +84,7 @@ class BotLauncher(tk.Tk):
         self.deiconify()
         self.after(200, self._check_prerequisites_on_start)
         self.after(4000, lambda: check_update_async(self))
+
     def _apply_icon(self):
         ico_path = get_resource_path(os.path.join("assets", "logo.ico"))
         if not os.path.exists(ico_path):
@@ -819,14 +821,28 @@ class BotLauncher(tk.Tk):
 
         def _run():
             try:
-                from scripts import MihonoBourbot
+                from scripts.gui.prereqs import bootstrap_libs, preload_cv2
+                bootstrap_libs()
+                preload_cv2()
+                from scripts.bot import MihonoBourbot
 
                 bot = MihonoBourbot(config_path=CONFIG_PATH)
                 logging.getLogger().addHandler(gui_log_handler)
                 self._active_bot = bot
                 bot.run(num_runs=num_runs)
             except Exception as e:
+                full_tb = traceback.format_exc()
                 self._log("ERROR: " + str(e))
+                self._log("--- TRACEBACK ---")
+                for line in full_tb.splitlines():
+                    self._log(line)
+                self._log("--- END TRACEBACK ---")
+                try:
+                    log_dir = Path(os.getcwd()) / "logs"
+                    log_dir.mkdir(exist_ok=True)
+                    (log_dir / "last_error.log").write_text(full_tb, encoding="utf-8")
+                except Exception:
+                    pass
             finally:
                 logging.getLogger().removeHandler(gui_log_handler)
                 self.bot_running = False
@@ -888,12 +904,18 @@ class BotLauncher(tk.Tk):
 
         def _run():
             try:
-                from scripts import MihonoBourbot
+                from scripts.gui.prereqs import bootstrap_libs, preload_cv2
+                bootstrap_libs()
+                preload_cv2()
+                from scripts.bot import MihonoBourbot
 
                 bot = MihonoBourbot(config_path=CONFIG_PATH)
                 bot.test_vision()
             except Exception as e:
+                full_tb = traceback.format_exc()
                 self._log("ERROR: " + str(e))
+                for line in full_tb.splitlines():
+                    self._log(line)
 
         threading.Thread(target=_run, daemon=True).start()
 

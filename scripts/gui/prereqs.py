@@ -34,6 +34,7 @@ _CARD_BG  = "#2a2a3d"
 
 _MIN_PYTHON = (3, 8)
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+_dll_handles = []
 
 def bootstrap_libs():
     libs = Path(LIBS_DIR)
@@ -43,16 +44,92 @@ def bootstrap_libs():
         s = str(d)
         if d.exists() and s not in sys.path:
             sys.path.insert(0, s)
-    pysys32 = libs / "pywin32_system32"
-    if pysys32.exists():
-        if hasattr(os, "add_dll_directory"):
-            try:
-                os.add_dll_directory(str(pysys32))
-            except Exception:
-                pass
-        os.environ["PATH"] = (
-            str(pysys32) + os.pathsep + os.environ.get("PATH", "")
-        )
+    dll_dirs = set()
+    for pyd in libs.rglob("*.pyd"):
+        dll_dirs.add(pyd.parent)
+    for dll in libs.rglob("*.dll"):
+        dll_dirs.add(dll.parent)
+    if getattr(sys, "frozen", False):
+        internal = Path(sys.executable).parent / "_internal"
+        if internal.exists():
+            dll_dirs.add(internal)
+            pywin32_sys32 = internal / "pywin32_system32"
+            if pywin32_sys32.exists():
+                dll_dirs.add(pywin32_sys32)
+    for d in dll_dirs:
+        try:
+            if hasattr(os, "add_dll_directory"):
+                handle = os.add_dll_directory(str(d))
+                _dll_handles.append(handle)
+            os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
+        except Exception:
+            pass
+
+_CV2_PATCH_OLD = '    native_module = importlib.import_module("cv2")'
+_CV2_PATCH_NEW = (
+    '    import importlib.machinery as _imm, importlib.util as _imu, os as _os\n'
+    '    _cv2_d = _os.path.dirname(_os.path.abspath(__file__))\n'
+    '    _pyd = next((_f for _f in _os.listdir(_cv2_d) if _f.startswith("cv2") and _f.endswith(".pyd")), None)\n'
+    '    if _pyd:\n'
+    '        _ldr = _imm.ExtensionFileLoader("cv2", _os.path.join(_cv2_d, _pyd))\n'
+    '        _spec = _imu.spec_from_loader("cv2", _ldr)\n'
+    '        native_module = _imu.module_from_spec(_spec)\n'
+    '        import sys as _sys\n'
+    '        _sys.modules["cv2"] = native_module\n'
+    '        _ldr.exec_module(native_module)\n'
+    '    else:\n'
+    '        native_module = importlib.import_module("cv2")'
+)
+
+
+def _patch_cv2_init():
+    cv2_init = Path(LIBS_DIR) / 'cv2' / '__init__.py'
+    if not cv2_init.exists():
+        return
+    text = cv2_init.read_text(encoding='utf-8')
+    if _CV2_PATCH_OLD not in text:
+        return
+    cv2_init.write_text(text.replace(_CV2_PATCH_OLD, _CV2_PATCH_NEW), encoding='utf-8')
+
+
+def preload_cv2():
+    if 'cv2' in sys.modules:
+        return
+    if getattr(sys, 'frozen', False):
+        return
+    import importlib.machinery
+    import importlib.util
+    import ctypes as _ct
+    cv2_dir = Path(LIBS_DIR) / 'cv2'
+    if not cv2_dir.exists():
+        return
+    pyd = next(cv2_dir.glob('cv2*.pyd'), None)
+    if not pyd:
+        return
+    for dll in cv2_dir.glob('*.dll'):
+        try:
+            _ct.WinDLL(str(dll))
+        except Exception:
+            pass
+    loader = importlib.machinery.ExtensionFileLoader('cv2', str(pyd))
+    spec = importlib.util.spec_from_loader('cv2', loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules['cv2'] = mod
+    try:
+        loader.exec_module(mod)
+    except Exception:
+        sys.modules.pop('cv2', None)
+        raise
+
+
+def _revert_cv2_patch():
+    cv2_init = Path(LIBS_DIR) / 'cv2' / '__init__.py'
+    if not cv2_init.exists():
+        return
+    text = cv2_init.read_text(encoding='utf-8')
+    if _CV2_PATCH_NEW not in text:
+        return
+    cv2_init.write_text(text.replace(_CV2_PATCH_NEW, _CV2_PATCH_OLD), encoding='utf-8')
 
 def _check_easyocr() -> bool:
     return importlib.util.find_spec("easyocr") is not None
@@ -558,6 +635,7 @@ class PrerequisiteDialog(tk.Toplevel):
             state["done"] = True
             _run_pywin32_postinstall()
             bootstrap_libs()
+            _patch_cv2_init()
             self.after(0, lambda: (
                 prog_var.set(100),
                 status_lbl.configure(
@@ -639,6 +717,7 @@ class PrerequisiteDialog(tk.Toplevel):
         def _on_done():
             state["done"] = True
             bootstrap_libs()
+            _patch_cv2_init()
             self.after(0, lambda: (
                 prog_var.set(100),
                 status_lbl.configure(
