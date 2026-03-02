@@ -72,6 +72,9 @@ class DetectionMixin:
             if self.find_template("white_burst", screenshot, 0.65):
                 return GameScreen.TRAINING
 
+        if self.find_template("btn_claw_machine", screenshot, 0.72):
+            return GameScreen.CLAW_MACHINE
+
         if self.find_template("btn_inspiration", screenshot, 0.70):
             return GameScreen.INSPIRATION
 
@@ -100,6 +103,9 @@ class DetectionMixin:
             )
             if not has_event_win:
                 return GameScreen.RACE_RESULT
+
+        if self.find_template("btn_try_again", screenshot, 0.75):
+            return GameScreen.TRY_AGAIN
 
         if self.is_at_career_complete(screenshot):
             return GameScreen.CAREER_COMPLETE

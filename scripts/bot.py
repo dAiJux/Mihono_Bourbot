@@ -223,7 +223,6 @@ class MihonoBourbot:
         self.calibrate()
 
         self.logger.info(f"Starting bot for {num_runs} run(s)")
-        self.logger.info("Make sure the game is on the deck selection screen!")
         self.logger.info("Bot will start in 5 seconds...")
 
         for i in range(5, 0, -1):

@@ -15,6 +15,8 @@ class GameScreen(Enum):
     CAREER_COMPLETE = "career_complete"
     SKILL_SELECT = "skill_select"
     RECREATION = "recreation"
+    CLAW_MACHINE = "claw_machine"
+    TRY_AGAIN = "try_again"
     UNKNOWN = "unknown"
 
 class Action(Enum):

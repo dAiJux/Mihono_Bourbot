@@ -62,6 +62,7 @@ GENERIC_BUTTONS = [
     "btn_skip", "btn_tap", "btn_next", "btn_back",
     "btn_race_start", "btn_race_next_finish",
     "btn_inspiration", "btn_claw_machine", "btn_unity_launch",
+    "btn_try_again",
 ]
 
 EVENT_WINDOWS = [
@@ -255,7 +256,7 @@ class VisualDebugTool:
 
         if self.screen != GameScreen.SKILL_SELECT:
             btns = GENERIC_BUTTONS
-            if self.screen in (GameScreen.RACE_SELECT, GameScreen.RACE):
+            if self.screen in (GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.TRY_AGAIN):
                 btns = [b for b in GENERIC_BUTTONS if b != "btn_confirm"]
             self._detect_buttons(ss, gx, gw, btns, "gen_btn")
 
