@@ -21,7 +21,8 @@ class NavigationMixin:
                     self.logger.info("Clicked btn_back to return to main")
                 else:
                     gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
-                    back_x = gx + int(gw * 0.06)
+                    xf = self.vision._aspect_x_factor(gw, gh)
+                    back_x = gx + int(gw * 0.06 * xf)
                     back_y = gy + int(gh * 0.02)
                     self.logger.info(f"btn_back not found, clicking fallback ({back_x}, {back_y})")
                     self.click_at(back_x, back_y)
@@ -45,6 +46,7 @@ class NavigationMixin:
         return self.vision.detect_screen(screenshot) == GameScreen.MAIN
 
     def _handle_try_again_cancel(self):
+        self.wait(0.5)
         screenshot = self.vision.take_screenshot()
         try_again = self.vision.find_template("btn_try_again", screenshot, threshold=0.75)
         if try_again:
@@ -83,6 +85,9 @@ class NavigationMixin:
                 return True
             elif fallback == "recreation":
                 self.execute_recreation_action()
+                return True
+            elif fallback == "scheduled_race":
+                self.execute_race_action("scheduled")
                 return True
             else:
                 return False
@@ -150,9 +155,60 @@ class NavigationMixin:
                 self.logger.critical("CAREER COMPLETE detected in advance_turn — STOPPING IMMEDIATELY")
                 return
 
+            banner = self.vision.identify_popup_banner(screenshot)
+            if banner == "scheduled_race":
+                self.logger.info("Scheduled Race popup banner in advance_turn — must click Race")
+                race_btn = self.vision.find_template("btn_race", screenshot, 0.80)
+                if race_btn:
+                    self.click_with_offset(*race_btn)
+                else:
+                    cancel_pos = self.vision.find_template("btn_cancel", screenshot, 0.70)
+                    gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+                    if cancel_pos:
+                        center_x = gx + gw // 2
+                        race_x = center_x + (center_x - cancel_pos[0])
+                        self.click_with_offset(race_x, cancel_pos[1])
+                self.wait(1.0)
+                self._run_race()
+                idle_count = 0
+                continue
+
+            if banner == "insufficient_fans":
+                insuf_pos = self.vision.find_template("insufficient_fans", screenshot, 0.70)
+                force = self.config.get("race_strategy", {}).get(
+                    "force_race_insufficient_fans", True,
+                )
+                cancel_pos = self.vision.find_template("btn_cancel", screenshot, 0.70)
+                gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+                if force:
+                    self.logger.info("Insufficient Fans popup — force race enabled, clicking Race")
+                    if cancel_pos:
+                        center_x = gx + gw // 2
+                        race_x = center_x + (center_x - cancel_pos[0])
+                        self.click_with_offset(race_x, cancel_pos[1])
+                    elif insuf_pos:
+                        xf = self.vision._aspect_x_factor(gw, gh)
+                        self.click_with_offset(
+                            gx + int(gw * 0.65 * xf),
+                            insuf_pos[1] + int(gh * 0.30),
+                        )
+                else:
+                    self.logger.info("Insufficient Fans popup — force race disabled, clicking Cancel")
+                    if cancel_pos:
+                        self.click_with_offset(*cancel_pos)
+                    elif insuf_pos:
+                        xf = self.vision._aspect_x_factor(gw, gh)
+                        self.click_with_offset(
+                            gx + int(gw * 0.35 * xf),
+                            insuf_pos[1] + int(gh * 0.30),
+                        )
+                self.wait(1.0)
+                idle_count = 0
+                continue
+
             race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
             if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup detected — clicking Race")
+                self.logger.info("Scheduled race popup detected (btn_race) — clicking Race")
                 self.click_with_offset(*race_popup)
                 self.wait(1.0)
                 screenshot = self.vision.take_screenshot()
@@ -172,7 +228,10 @@ class NavigationMixin:
                     self.vision.find_template(ew, screenshot, 0.82)
                     for ew in ["event_scenario_window", "event_trainee_window", "event_support_window"]
                 )
-                has_race_popup = bool(self.vision.find_template("btn_race", screenshot, 0.75))
+                has_race_popup = bool(
+                    self.vision.find_template("btn_race", screenshot, 0.75) or
+                    self.vision.find_template("scheduled_race_popup", screenshot, 0.75)
+                )
                 if not has_event_win and not has_race_popup:
                     self.logger.info("Popup with Close button detected — dismissing")
                     self.click_with_offset(*close_pos)
@@ -237,6 +296,24 @@ class NavigationMixin:
                 idle_count = 0
                 continue
 
+            race_popup = self.vision.find_template("btn_race", screenshot, threshold=0.80)
+            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
+                self.logger.info("Scheduled race popup in advance_turn — clicking Race")
+                self.click_with_offset(*race_popup)
+                self.wait(1.0)
+                self._run_race()
+                idle_count = 0
+                continue
+
+            cancel_pos = self.vision.find_template("btn_cancel", screenshot, threshold=0.75)
+            ok_pos = self.vision.find_template("btn_ok", screenshot, threshold=0.75)
+            if cancel_pos and ok_pos:
+                self.logger.info("Conflict popup (Cancel+OK) in advance_turn — clicking Cancel to preserve race")
+                self.click_with_offset(*cancel_pos)
+                self.wait(0.8)
+                idle_count = 0
+                continue
+
             found_btn = False
             for btn in ("btn_next", "btn_tap", "btn_race_next_finish", "btn_skip", "btn_ok"):
                 pos = self.vision.find_template(btn, screenshot, threshold=0.75)
@@ -276,20 +353,41 @@ class NavigationMixin:
                     "btn_launch_final_unity", "btn_unity_launch", "btn_select_opponent",
                     "btn_try_again", "btn_cancel",
                 ]
-                is_non_event = any(
-                    self.vision.find_template(b, screenshot, 0.70) for b in non_event_buttons
-                )
-                if is_non_event:
-                    self.logger.info("Event choices detected but non-event button visible — ignoring")
-                    idle_count += 1
+                clicked_non_event = False
+                for b in non_event_buttons:
+                    pos = self.vision.find_template(b, screenshot, 0.70)
+                    if pos:
+                        gx_t, _, gw_t, _ = self.vision.get_game_rect(screenshot)
+                        if gx_t <= pos[0] <= gx_t + gw_t:
+                            self.logger.info(f"Event choices with non-event button '{b}' — clicking it")
+                            self.click_with_offset(*pos)
+                            self.wait(0.5)
+                            clicked_non_event = True
+                            idle_count = 0
+                            break
+                if clicked_non_event:
                     continue
                 is_race_schedule = (
                     self.vision.find_template("scheduled_race", screenshot, 0.75) or
+                    self.vision.find_template("scheduled_race_popup", screenshot, 0.75) or
                     self.vision.find_template("target_race", screenshot, 0.75) or
                     self.vision.find_template("btn_race_confirm", screenshot, 0.65)
                 )
                 if is_race_schedule:
                     self.logger.info("Event choices detected on race schedule screen — ignoring")
+                    idle_count += 1
+                    continue
+                screen_check = self.vision.detect_screen(screenshot)
+                if screen_check not in (GameScreen.EVENT, GameScreen.UNKNOWN):
+                    self.logger.info(
+                        f"Event choices detected but screen is {screen_check.value} — not an event"
+                    )
+                    if screen_check == GameScreen.MAIN:
+                        break
+                    if screen_check == GameScreen.TRAINING:
+                        self.logger.info("advance_turn: on training screen, navigating back to main")
+                        self.navigate_to_main_screen(screenshot)
+                        break
                     idle_count += 1
                     continue
                 gx, gy, gw, gh = self.vision.get_game_rect(screenshot)

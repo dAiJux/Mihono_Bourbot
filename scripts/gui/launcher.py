@@ -68,10 +68,9 @@ class BotLauncher(tk.Tk):
         my_app_id = 'Bourbot.Mihono.Automation.1.0.0'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
         self.title("Mihono Bourbot")
-        self.geometry("860x900")
-        self.resizable(False, True)
         self.configure(bg=self.BG)
         self._apply_icon()
+        self._splash = self._show_splash()
         self.config_data = self._load_config()
         self.bot_thread = None
         self.bot_running = False
@@ -81,6 +80,17 @@ class BotLauncher(tk.Tk):
         self._build_ui()
         self._update_status_bar()
         self.update_idletasks()
+        self._splash.destroy()
+        self._splash = None
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        win_w = min(900, int(sw * 0.65))
+        win_h = min(960, int(sh * 0.85))
+        x = (sw - win_w) // 2
+        y = (sh - win_h) // 2
+        self.geometry(f"{win_w}x{win_h}+{x}+{y}")
+        self.minsize(760, 640)
+        self.resizable(True, True)
         self.deiconify()
         self.after(200, self._check_prerequisites_on_start)
         self.after(4000, lambda: check_update_async(self))
@@ -110,6 +120,26 @@ class BotLauncher(tk.Tk):
                 self.iconbitmap(default=ico_path)
             except Exception:
                 pass
+
+    def _show_splash(self):
+        splash = tk.Toplevel(self)
+        splash.overrideredirect(True)
+        splash.configure(bg=self.BG)
+        w, h = 340, 140
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        splash.geometry(f"{w}x{h}+{x}+{y}")
+        splash.attributes("-topmost", True)
+        tk.Label(
+            splash, text="\u265e Mihono Bourbot",
+            font=("Segoe UI Bold", 18), bg=self.BG, fg=self.ACCENT,
+        ).pack(pady=(30, 8))
+        tk.Label(
+            splash, text="Loading\u2026",
+            font=("Segoe UI", 11), bg=self.BG, fg=self.FG_DIM,
+        ).pack()
+        splash.update()
+        return splash
 
     def _setup_styles(self):
         style = ttk.Style(self)
@@ -177,6 +207,16 @@ class BotLauncher(tk.Tk):
         style.configure("TScrollbar", background=self.BG_ALT,
                          troughcolor=self.BG, arrowcolor=self.ACCENT)
 
+        style.configure("TCheckbutton", background=self.BG, foreground=self.FG,
+                         indicatorcolor=self.BG_ALT,
+                         indicatorrelief="flat")
+        style.map("TCheckbutton",
+                  background=[("active", self.BG)],
+                  indicatorcolor=[
+                      ("selected", self.ACCENT),
+                      ("!selected", self.BG_ALT),
+                  ])
+
         style.configure("Status.TLabel", background=self.BG_ALT,
                          foreground=self.FG_DIM, font=("Segoe UI", 9),
                          padding=[8, 4])
@@ -194,9 +234,19 @@ class BotLauncher(tk.Tk):
             self.wait_window(dlg)
 
     def _load_config(self):
+        def _deep_merge(base, override):
+            merged = base.copy()
+            for k, v in override.items():
+                if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+                    merged[k] = _deep_merge(merged[k], v)
+                else:
+                    merged[k] = v
+            return merged
+
         if Path(CONFIG_PATH).exists():
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
+                saved = json.load(f)
+            return _deep_merge(DEFAULT_CONFIG, saved)
         return DEFAULT_CONFIG.copy()
 
     def _save_config(self):
@@ -213,8 +263,11 @@ class BotLauncher(tk.Tk):
             cfg["stat_priority"] = list(self.priority_listbox.get(0, tk.END))
 
             cfg["race_strategy"]["default"] = self.strategy_var.get()
+            cfg["race_strategy"]["force_race_insufficient_fans"] = self.force_fans_var.get()
 
             cfg["scenario"] = self.scenario_var.get()
+
+            cfg["platform"] = self._platform_var.get()
 
             cfg["thresholds"]["energy_low"] = int(self.energy_low_var.get())
             cfg["thresholds"]["energy_training"] = int(self.energy_train_var.get())
@@ -268,19 +321,23 @@ class BotLauncher(tk.Tk):
 
         tab_stats = ttk.Frame(notebook)
         notebook.add(tab_stats, text="  Stats & Priority  ")
-        self._build_stats_tab(tab_stats)
+        self._build_stats_tab(self._scrollable_tab(tab_stats))
 
         tab_race = ttk.Frame(notebook)
         notebook.add(tab_race, text="  Race & Thresholds  ")
-        self._build_race_tab(tab_race)
+        self._build_race_tab(self._scrollable_tab(tab_race))
 
         tab_skills = ttk.Frame(notebook)
         notebook.add(tab_skills, text="  Skills  ")
         self._build_skills_tab(tab_skills)
 
+        tab_window = ttk.Frame(notebook)
+        notebook.add(tab_window, text="  Window  ")
+        self.after_idle(lambda p=tab_window: self._build_window_tab(p))
+
         tab_auto = ttk.Frame(notebook)
         notebook.add(tab_auto, text="  Automation & Safety  ")
-        self._build_auto_tab(tab_auto)
+        self._build_auto_tab(self._scrollable_tab(tab_auto))
 
         tab_log = ttk.Frame(notebook)
         notebook.add(tab_log, text="  Log  ")
@@ -291,12 +348,6 @@ class BotLauncher(tk.Tk):
 
         left = ttk.Frame(ctrl)
         left.pack(side="left", padx=10, pady=10)
-
-        ttk.Label(left, text="Runs:").pack(side="left", padx=(0, 4))
-        self.runs_var = tk.StringVar(value="1")
-        ttk.Spinbox(
-            left, from_=1, to=100, width=5, textvariable=self.runs_var
-        ).pack(side="left", padx=(0, 14))
 
         ttk.Button(left, text="\U0001f4be  Save Config", command=self._save_config).pack(
             side="left", padx=4
@@ -329,6 +380,224 @@ class BotLauncher(tk.Tk):
             relief="flat", anchor="w",
         )
         self.status_bar.pack(fill="x", padx=12, pady=(2, 10))
+
+    def _scrollable_tab(self, tab_frame):
+        canvas = tk.Canvas(tab_frame, bg=self.BG, highlightthickness=0, bd=0)
+        vsb = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        wid = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _update_scroll(e=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            content_h = inner.winfo_reqheight()
+            visible_h = canvas.winfo_height()
+            if content_h > visible_h:
+                if not vsb.winfo_ismapped():
+                    vsb.pack(side="right", fill="y")
+            else:
+                if vsb.winfo_ismapped():
+                    vsb.pack_forget()
+
+        inner.bind("<Configure>", _update_scroll)
+        canvas.bind("<Configure>", lambda e: (
+            canvas.itemconfigure(wid, width=e.width),
+            _update_scroll(),
+        ))
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.configure(yscrollcommand=vsb.set)
+        def _on_enter(e):
+            canvas.bind_all(
+                "<MouseWheel>",
+                lambda ev: canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units"),
+            )
+        def _on_leave(e):
+            canvas.unbind_all("<MouseWheel>")
+        canvas.bind("<Enter>", _on_enter)
+        canvas.bind("<Leave>", _on_leave)
+        return inner
+
+    def _build_window_tab(self, parent):
+        plat_frame = ttk.LabelFrame(parent, text="Platform / Emulator")
+        plat_frame.pack(fill="x", padx=10, pady=8)
+        ttk.Label(
+            plat_frame,
+            text="Select the platform where the game is running.",
+            style="Dim.TLabel",
+        ).pack(anchor="w", padx=10, pady=(6, 4))
+
+        plat_row = ttk.Frame(plat_frame)
+        plat_row.pack(fill="x", padx=10, pady=(0, 8))
+        ttk.Label(plat_row, text="Platform:").pack(side="left", padx=(0, 6))
+        self._platform_var = tk.StringVar(
+            value=self.config_data.get("platform", "google_play")
+        )
+        plat_combo = ttk.Combobox(
+            plat_row, textvariable=self._platform_var,
+            values=["google_play", "steam"], width=16, state="readonly",
+        )
+        plat_combo.pack(side="left")
+        ttk.Label(
+            plat_row,
+            text="Google Play = centered 9:16 (DMM, emulators).  Steam = wider layout + sidebar.",
+            style="Dim.TLabel",
+        ).pack(side="left", padx=(12, 0))
+
+        top = ttk.LabelFrame(parent, text="Game Window Selection")
+        top.pack(fill="x", padx=10, pady=8)
+        ttk.Label(
+            top,
+            text=(
+                "Select the window where the game is running.\n"
+                "This allows any emulator or player to be used."
+            ),
+            style="Dim.TLabel",
+        ).pack(anchor="w", padx=10, pady=(6, 4))
+
+        list_frame = tk.Frame(top, bg=self.BG)
+        list_frame.pack(fill="x", padx=10, pady=4)
+
+        self._window_listbox = tk.Listbox(
+            list_frame, height=8, font=("Segoe UI", 10),
+            bg=self.BG_ALT, fg=self.FG, selectbackground=self.ACCENT,
+            selectforeground="#ffffff", highlightthickness=1,
+            highlightbackground=self.BORDER, relief="flat", bd=0,
+        )
+        w_scroll = ttk.Scrollbar(list_frame, command=self._window_listbox.yview)
+        self._window_listbox.configure(yscrollcommand=w_scroll.set)
+        w_scroll.pack(side="right", fill="y")
+        self._window_listbox.pack(side="left", fill="both", expand=True)
+
+        btn_row = ttk.Frame(top)
+        btn_row.pack(fill="x", padx=10, pady=4)
+        ttk.Button(
+            btn_row, text="\u21bb  Refresh", command=self._refresh_window_list,
+        ).pack(side="left", padx=4)
+        ttk.Button(
+            btn_row, text="\u2714  Use This Window", command=self._select_game_window,
+        ).pack(side="left", padx=4)
+        ttk.Button(
+            btn_row, text="\u2716  Clear Selection", command=self._clear_window_selection,
+        ).pack(side="left", padx=4)
+
+        current_title = self.config_data.get("window_title", "")
+        self._selected_window_var = tk.StringVar(
+            value=f"Current: {current_title}" if current_title else "No window selected (auto-detect)"
+        )
+        ttk.Label(top, textvariable=self._selected_window_var).pack(
+            anchor="w", padx=10, pady=4,
+        )
+
+        preview_frame = ttk.LabelFrame(parent, text="Preview & Info")
+        preview_frame.pack(fill="both", expand=True, padx=10, pady=8)
+
+        self._preview_label = tk.Label(
+            preview_frame, bg=self.BG_ALT,
+            text="Select a window above to see a preview",
+            fg=self.FG_DIM, font=("Segoe UI", 10),
+        )
+        self._preview_label.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self._resolution_var = tk.StringVar(value="")
+        ttk.Label(preview_frame, textvariable=self._resolution_var).pack(
+            anchor="w", padx=10, pady=(0, 8),
+        )
+
+        self._window_list_data = []
+        self._preview_image = None
+        self._window_listbox.bind("<<ListboxSelect>>", self._on_window_select)
+        self.after(300, self._refresh_window_list)
+
+    def _refresh_window_list(self):
+        from scripts.vision.capture import CaptureMixin
+        self._window_listbox.delete(0, tk.END)
+        self._window_list_data = CaptureMixin.enumerate_visible_windows(
+            exclude_pid=os.getpid(),
+        )
+        for _hwnd, title in self._window_list_data:
+            self._window_listbox.insert(tk.END, title)
+
+    def _on_window_select(self, event=None):
+        sel = self._window_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        hwnd, title = self._window_list_data[idx]
+        self._show_window_preview(hwnd, title)
+
+    def _show_window_preview(self, hwnd, title):
+        try:
+            import win32gui as _wg
+            import win32ui as _wu
+            import ctypes as _ct
+            import numpy as _np
+
+            rect = _wg.GetWindowRect(hwnd)
+            w = rect[2] - rect[0]
+            h = rect[3] - rect[1]
+            if w <= 0 or h <= 0:
+                self._preview_label.configure(image="", text="Window has no size")
+                return
+
+            client_rect = _wg.GetClientRect(hwnd)
+            cw, ch = client_rect[2], client_rect[3]
+            client_origin = _wg.ClientToScreen(hwnd, (0, 0))
+            off_x = client_origin[0] - rect[0]
+            off_y = client_origin[1] - rect[1]
+
+            hwnd_dc = _wg.GetWindowDC(hwnd)
+            mfc_dc = _wu.CreateDCFromHandle(hwnd_dc)
+            save_dc = mfc_dc.CreateCompatibleDC()
+            bitmap = _wu.CreateBitmap()
+            bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
+            save_dc.SelectObject(bitmap)
+
+            _ct.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 0x00000002)
+
+            bmp_info = bitmap.GetInfo()
+            bmp_data = bitmap.GetBitmapBits(True)
+            img = _np.frombuffer(bmp_data, dtype=_np.uint8)
+            img = img.reshape((bmp_info["bmHeight"], bmp_info["bmWidth"], 4))
+
+            _wg.DeleteObject(bitmap.GetHandle())
+            save_dc.DeleteDC()
+            mfc_dc.DeleteDC()
+            _wg.ReleaseDC(hwnd, hwnd_dc)
+
+            if off_x > 0 or off_y > 0:
+                img = img[off_y:off_y + ch, off_x:off_x + cw]
+            else:
+                cw, ch = img.shape[1], img.shape[0]
+
+            from PIL import Image, ImageTk
+            pil_img = Image.frombuffer(
+                "RGBA", (img.shape[1], img.shape[0]),
+                img.tobytes(), "raw", "BGRA", 0, 1,
+            )
+            pil_img.thumbnail((400, 350), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(pil_img)
+
+            self._preview_label.configure(image=photo, text="")
+            self._preview_image = photo
+            self._resolution_var.set(f"Client area: {cw} \u00d7 {ch} px")
+        except Exception as e:
+            self._preview_label.configure(image="", text=f"Preview failed: {e}")
+            self._resolution_var.set("")
+
+    def _select_game_window(self):
+        sel = self._window_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Warning", "Please select a window first.")
+            return
+        idx = sel[0]
+        _hwnd, title = self._window_list_data[idx]
+        self.config_data["window_title"] = title
+        self._selected_window_var.set(f"Current: {title}")
+        self._log(f"Window selected: {title}")
+
+    def _clear_window_selection(self):
+        self.config_data["window_title"] = ""
+        self._selected_window_var.set("No window selected (auto-detect)")
+        self._log("Window selection cleared — will use auto-detect.")
 
     def _build_stats_tab(self, parent):
         cfg = self.config_data
@@ -500,6 +769,34 @@ class BotLauncher(tk.Tk):
             ttk.Spinbox(tgrp, from_=0, to=100, width=6, textvariable=var).grid(
                 row=i, column=1, padx=8
             )
+
+        fan_grp = ttk.LabelFrame(parent, text="Fan Warning")
+        fan_grp.pack(fill="x", padx=10, pady=8)
+        self.force_fans_var = tk.BooleanVar(
+            value=cfg.get("race_strategy", {}).get(
+                "force_race_insufficient_fans", True,
+            )
+        )
+        toggle_row = ttk.Frame(fan_grp)
+        toggle_row.pack(anchor="w", padx=12, pady=6)
+        self._fans_toggle = tk.Canvas(
+            toggle_row, width=44, height=24,
+            bg=self.BG, highlightthickness=0, bd=0,
+        )
+        self._fans_toggle.pack(side="left", padx=(0, 10))
+        ttk.Label(
+            toggle_row,
+            text='Force race when "Insufficient Fans" warning appears',
+        ).pack(side="left")
+        self._draw_toggle(self._fans_toggle, self.force_fans_var.get())
+        self._fans_toggle.bind("<Button-1>", lambda e: self._flip_toggle(
+            self.force_fans_var, self._fans_toggle,
+        ))
+        ttk.Label(
+            fan_grp,
+            text="When enabled, automatically enters the race. When disabled, dismisses the popup.",
+            style="Dim.TLabel",
+        ).pack(anchor="w", padx=12, pady=(0, 6))
 
         info = ttk.LabelFrame(parent, text="Decision Priority (read-only)")
         info.pack(fill="x", padx=10, pady=8)
@@ -744,6 +1041,24 @@ class BotLauncher(tk.Tk):
             pady=(0, 8)
         )
 
+    def _draw_toggle(self, canvas, on):
+        canvas.delete("all")
+        w, h = 44, 24
+        r = h // 2
+        bg = self.ACCENT if on else self.BG_ALT
+        canvas.create_oval(0, 0, h, h, fill=bg, outline=bg)
+        canvas.create_oval(w - h, 0, w, h, fill=bg, outline=bg)
+        canvas.create_rectangle(r, 0, w - r, h, fill=bg, outline=bg)
+        knob_x = w - r - 2 if on else r + 2
+        canvas.create_oval(
+            knob_x - r + 3, 3, knob_x + r - 3, h - 3,
+            fill="#ffffff", outline="#ffffff",
+        )
+
+    def _flip_toggle(self, var, canvas):
+        var.set(not var.get())
+        self._draw_toggle(canvas, var.get())
+
     def _priority_up(self):
         sel = self.priority_listbox.curselection()
         if not sel or sel[0] == 0:
@@ -808,14 +1123,13 @@ class BotLauncher(tk.Tk):
 
         self._save_config()
 
-        num_runs = int(self.runs_var.get())
         self.bot_running = True
         self.bot_paused = False
         self.start_btn.configure(state="disabled")
         self.pause_btn.configure(state="normal")
         self.stop_btn.configure(state="normal")
 
-        self._log("Starting bot for " + str(num_runs) + " run(s)...")
+        self._log("Starting bot...")
 
         gui_log_handler = _GuiLogHandler(self._log)
 
@@ -829,7 +1143,7 @@ class BotLauncher(tk.Tk):
                 bot = MihonoBourbot(config_path=CONFIG_PATH)
                 logging.getLogger().addHandler(gui_log_handler)
                 self._active_bot = bot
-                bot.run(num_runs=num_runs)
+                bot.run(num_runs=1)
             except Exception as e:
                 full_tb = traceback.format_exc()
                 self._log("ERROR: " + str(e))

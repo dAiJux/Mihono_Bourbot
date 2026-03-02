@@ -47,8 +47,9 @@ class ClickMixin:
         self.click_at(x + ox, y + oy)
 
     def wait(self, base_seconds: float = 2.0):
+        multiplier = self.config.get("automation_settings", {}).get("sleep_time_multiplier", 1.0)
         jitter = random.uniform(1.0, 3.0)
-        total = base_seconds * jitter / 2.0
+        total = base_seconds * jitter / 2.0 * multiplier
         elapsed = 0.0
         while elapsed < total:
             if self._check_stopped():

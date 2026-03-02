@@ -9,10 +9,10 @@
 | Cause | Fix |
 |-------|-----|
 | Game minimized | Restore to visible state |
-| Unrecognized window title | Add to `GAME_WINDOW_TITLES` in `capture.py` |
+| Window not selected | Use the **Window** tab in the GUI to pick the game window |
 | Game not running | Start the game first |
 
-Recognized titles: `umamusume`, `ウマ娘`, `pretty derby`, `dmm`
+The **Window** tab lists all visible windows and lets you select the one running the game. This works with any emulator or player. If no window is selected, auto-detect looks for titles containing: `umamusume`, `ウマ娘`, `pretty derby`, `dmm`.
 
 ---
 
@@ -75,7 +75,7 @@ If you still see UNKNOWN on a screen, run `visual_debug.py` with **D** and check
 |-------|-----|
 | EasyOCR not installed | `pip install easyocr` |
 | Models not downloaded | Run once with internet connection (downloads ~500 MB) |
-| Resolution too low | Use 1920×1080 |
+| Resolution very small | Use a larger game window — templates auto-scale but very small sizes reduce accuracy |
 
 Verify: `python -c "import easyocr; print('OK')"`
 

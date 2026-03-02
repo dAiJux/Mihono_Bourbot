@@ -10,6 +10,7 @@ class TrainingMixin:
 
     def _get_training_positions(self, screenshot: np.ndarray) -> Dict[str, Tuple[int, int]]:
         gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+        xf = self.vision._aspect_x_factor(gw, gh)
         cal = self.vision._calibration
         defaults = {
             "speed": (0.145, 0.843), "stamina": (0.322, 0.843),
@@ -19,7 +20,7 @@ class TrainingMixin:
         positions = {}
         for name, (def_x, def_y) in defaults.items():
             tp = cal.get(f"train_{name}", {})
-            px = gx + int(gw * tp.get("x", def_x))
+            px = gx + int(gw * tp.get("x", def_x) * xf)
             py = gy + int(gh * tp.get("y", def_y))
             positions[name] = (px, py)
         return positions
@@ -112,6 +113,37 @@ class TrainingMixin:
 
         self.vision.save_debug_screenshot("training_screen")
 
+        energy = cached_energy if cached_energy >= 0 else self.vision.read_energy_percentage(screenshot)
+        mood = cached_mood if cached_mood != "unknown" else self.vision.detect_mood(screenshot)
+        energy_training = self.config.get("thresholds", {}).get("energy_training", 50)
+        energy_low = self.config.get("thresholds", {}).get("energy_low", 40)
+
+        if energy < energy_training:
+            self.logger.info(
+                f"Energy low ({energy:.0f}% < {energy_training}%) — checking wit only"
+            )
+            wit_pos = icon_positions.get("wit", fallback_positions["wit"])
+            self.click_with_offset(*wit_pos)
+            self.wait(0.7)
+            screenshot = self.vision.take_screenshot()
+            wit_info = self.decision.score_single_training("wit", screenshot, is_pre_summer)
+            wit_score = wit_info.get("score", 0)
+
+            if energy >= energy_low and wit_score >= 25:
+                self.logger.info(
+                    f"Wit has {wit_score}pts >= 25 — Wit restores energy, proceeding"
+                )
+                self._last_selected_training = "wit"
+                self.click_with_offset(*wit_pos)
+                self.wait(0.5)
+                return None
+            else:
+                self.logger.info(
+                    f"Energy {energy:.0f}% and wit {wit_score}pts — aborting to REST"
+                )
+                self.navigate_to_main_screen(screenshot)
+                return "rest_summer" if is_summer else "rest"
+
         pre_selected = self._last_selected_training or "speed"
         others = [n for n in icon_positions if n != pre_selected and n != "speed"]
         scan_order = others
@@ -135,33 +167,13 @@ class TrainingMixin:
         slot_summary = ", ".join(f"{s}={training_scores[s]['score']}pts" for s in training_scores)
         self.logger.info(f"Training scores — {slot_summary} | Best: {best_slot} ({best_score}pts)")
 
-        energy = cached_energy if cached_energy >= 0 else self.vision.read_energy_percentage(screenshot)
-        mood = cached_mood if cached_mood != "unknown" else self.vision.detect_mood(screenshot)
-        self.logger.info(f"Using energy={energy:.0f}%, mood={mood} (from main screen)")
-
-        if energy < 45:
-            wit_score = training_scores.get("wit", {}).get("score", 0)
-            if energy >= 35 and wit_score >= 25:
-                self.logger.info(
-                    f"Energy low ({energy:.0f}%) but Wit has {wit_score}pts >= 25 "
-                    f"— Wit restores energy, proceeding"
-                )
-                best_slot = "wit"
-                best_score = wit_score
-            else:
-                self.logger.info(
-                    f"Energy low ({energy:.0f}% < 45%) and wit {wit_score}pts "
-                    f"-> aborting to REST"
-                )
-                self.navigate_to_main_screen(screenshot)
-                return "rest_summer" if is_summer else "rest"
-
         if not is_junior and mood.lower() != "great":
+            fallback = "rest_summer" if is_summer else "recreation"
             self.logger.info(
-                f"Mood '{mood}' not Great in Classic/Senior — aborting to RECREATION"
+                f"Mood '{mood}' not Great in Classic/Senior — aborting to {fallback.upper()}"
             )
             self.navigate_to_main_screen(screenshot)
-            return "recreation"
+            return fallback
 
         if is_summer and best_score < 10 and energy < 80:
             self.logger.info(
@@ -201,6 +213,10 @@ class TrainingMixin:
         self.logger.info(f"Confirming training '{target}' at {target_pos}")
         self.click_with_offset(*target_pos)
         self.wait(0.5)
+        if self._handle_scheduled_race_popup():
+            self.logger.info("Scheduled race preserved — navigating to main for race")
+            self.navigate_to_main_screen(self.vision.take_screenshot())
+            return "scheduled_race"
         return None
 
     def _handle_scheduled_race_popup(self) -> bool:

@@ -1,39 +1,92 @@
 from typing import Optional
+from difflib import SequenceMatcher
+
+FUZZY_THRESHOLD = 0.80
+
 
 class EventDecisionMixin:
+
+    def _fuzzy_match(self, event_name: str, text_lower: str) -> float:
+        name_lower = event_name.lower()
+        if name_lower in text_lower:
+            return 1.0
+        if len(name_lower) < 3:
+            return 0.0
+        ratio = SequenceMatcher(None, name_lower, text_lower).ratio()
+        if ratio >= FUZZY_THRESHOLD:
+            return ratio
+        name_len = len(name_lower)
+        text_len = len(text_lower)
+        if text_len > name_len + 5:
+            best = 0.0
+            window = name_len + 4
+            for start in range(0, text_len - name_len + 5, 2):
+                chunk = text_lower[start:start + window]
+                r = SequenceMatcher(None, name_lower, chunk).ratio()
+                if r > best:
+                    best = r
+            ratio = max(ratio, best)
+        name_words = [w for w in name_lower.split() if len(w) > 2]
+        if name_words:
+            text_words = text_lower.split()
+            hits = sum(1 for w in name_words if any(
+                SequenceMatcher(None, w, tw).ratio() >= 0.75 for tw in text_words
+            ))
+            word_ratio = hits / len(name_words)
+            if word_ratio >= 0.6:
+                ratio = max(ratio, 0.5 + word_ratio * 0.4)
+        return ratio
+
+    def _find_event_match(self, text_lower: str, event_database: dict):
+        best_data = None
+        best_source = ""
+        best_ratio = 0.0
+
+        for char_name, char_events in event_database.get("character_events", {}).items():
+            for event_name, data in char_events.items():
+                ratio = self._fuzzy_match(event_name, text_lower)
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_data = data
+                    best_source = f"character ({char_name}): {event_name}"
+                    if ratio >= 1.0:
+                        return best_data, best_source, best_ratio
+
+        for card_name, card_data in event_database.get("support_card_events", {}).items():
+            for event_name, data in card_data.get("events", {}).items():
+                ratio = self._fuzzy_match(event_name, text_lower)
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_data = data
+                    best_source = f"support ({card_name}): {event_name}"
+                    if ratio >= 1.0:
+                        return best_data, best_source, best_ratio
+
+        for event_name, data in event_database.get("common_events", {}).items():
+            ratio = self._fuzzy_match(event_name, text_lower)
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_data = data
+                best_source = f"common: {event_name}"
+                if ratio >= 1.0:
+                    return best_data, best_source, best_ratio
+
+        if best_ratio >= FUZZY_THRESHOLD:
+            return best_data, best_source, best_ratio
+        return None, "", best_ratio
+
+    def get_title_match_ratio(self, title: str, event_database: dict) -> float:
+        _, _, ratio = self._find_event_match(title.lower().strip(), event_database)
+        return ratio
 
     def decide_event_choice(
         self, event_text: str, event_database: dict, screenshot=None
     ) -> int:
         text_lower = event_text.lower().strip()
-        matched_data = None
-        matched_source = ""
 
-        for char_name, char_events in event_database.get("character_events", {}).items():
-            for event_name, data in char_events.items():
-                if event_name.lower() in text_lower:
-                    matched_data = data
-                    matched_source = f"character ({char_name}): {event_name}"
-                    break
-            if matched_data:
-                break
-
-        if not matched_data:
-            for card_name, card_data in event_database.get("support_card_events", {}).items():
-                for event_name, data in card_data.get("events", {}).items():
-                    if event_name.lower() in text_lower:
-                        matched_data = data
-                        matched_source = f"support ({card_name}): {event_name}"
-                        break
-                if matched_data:
-                    break
-
-        if not matched_data:
-            for event_name, data in event_database.get("common_events", {}).items():
-                if event_name.lower() in text_lower:
-                    matched_data = data
-                    matched_source = f"common: {event_name}"
-                    break
+        matched_data, matched_source, match_ratio = self._find_event_match(
+            text_lower, event_database
+        )
 
         if matched_data:
             choices = matched_data.get("choices", {})
@@ -44,7 +97,10 @@ class EventDecisionMixin:
                 self.logger.info(f"Automatic event: {matched_source}")
                 return 1
             best_num = self._score_event_choices(choices, screenshot)
-            self.logger.info(f"Matched {matched_source} -> Choice {best_num}")
+            pct = int(match_ratio * 100)
+            self.logger.info(
+                f"Matched {matched_source} ({pct}%) -> Choice {best_num}"
+            )
             return best_num
 
         if screenshot is not None:
@@ -52,33 +108,8 @@ class EventDecisionMixin:
             if visual:
                 return visual
 
-        patterns = event_database.get("generic_patterns", {})
-
-        skill_kw = ["skill point", "skill pt", "hint"]
-        if any(kw in text_lower for kw in skill_kw):
-            self.logger.info("Skill keywords detected -> Choice 1 (skill priority)")
-            return 1
-
-        energy_kw = patterns.get("energy_keywords", [])
-        if any(kw in text_lower for kw in energy_kw):
-            c = event_database.get("default_strategy", {}).get("if_contains_energy", 1)
-            self.logger.info(f"Energy keywords detected -> Choice {c}")
-            return c
-
-        training_kw = patterns.get("training_keywords", [])
-        if any(kw in text_lower for kw in training_kw):
-            c = event_database.get("default_strategy", {}).get("if_contains_training", 2)
-            self.logger.info(f"Training keywords detected -> Choice {c}")
-            return c
-
-        positive_kw = patterns.get("positive_keywords", [])
-        if any(kw in text_lower for kw in positive_kw):
-            self.logger.info("Positive keywords detected -> Choice 1")
-            return 1
-
-        default = event_database.get("default_strategy", {}).get("if_unknown", 1)
-        self.logger.info(f"Unknown event -> Default choice {default}")
-        return default
+        self.logger.info("Unknown event -> Default choice 1")
+        return 1
 
     def _score_event_choices(self, choices: dict, screenshot=None) -> int:
         current_mood = "unknown"

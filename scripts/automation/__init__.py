@@ -26,5 +26,7 @@ class AutomationModule(
         self.unity_round = 0
         self._event_db = {}
         self._last_selected_training = "speed"
+        self._last_event_title = ""
+        self._consecutive_event_count = 0
         self._running_flag = None
         self._pause_event = None

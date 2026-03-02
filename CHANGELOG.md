@@ -4,6 +4,25 @@ All notable changes are documented here.
 
 ---
 
+## [1.0.1] — 2026-03-01
+
+### Added
+- **Window Selection tab** in the GUI: pick any visible window as the game target, with a live preview and resolution display. Supports any emulator or player without editing code.
+- `window_title` config field — persists the selected window across sessions. Falls back to auto-detect when empty.
+- `sleep_time_multiplier` support in the `wait()` helper — scales all functional waits globally.
+
+### Changed
+- **Low-energy wit check**: when energy is below the training threshold, the bot now checks **only** the wit training slot instead of scanning all five. If wit scores well enough, it proceeds; otherwise it rests immediately. Eliminates unnecessary clicks.
+- Energy thresholds in the decision engine now use `thresholds.energy_low` from config instead of hardcoded `30`.
+- Between-turn delay now uses `automation_settings.action_delay_min / action_delay_max` from config instead of hardcoded `1–3 s`.
+- `find_game_window()` checks the saved `window_title` first, then falls back to keyword-based auto-detect.
+
+### Fixed
+- Hardcoded energy values (30/35/45) replaced with configurable thresholds throughout `engine.py` and `training.py`.
+- `btn_race_start` is now checked at the top of `detect_screen()` to avoid background-button confusion on the mandatory race screen.
+
+---
+
 ## [1.0.0] — 2026-02-24
 
 ### Added

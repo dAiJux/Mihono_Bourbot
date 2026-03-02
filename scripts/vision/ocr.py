@@ -71,11 +71,12 @@ class OcrMixin:
 
     def read_stat_value(self, stat_name: str, screenshot: np.ndarray) -> int:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
+        xf = self._aspect_x_factor(gw, gh)
         cal = self._calibration.get(f"stat_{stat_name}", {})
         if cal and "x1" in cal:
-            x = gx + int(gw * cal["x1"])
+            x = gx + int(gw * cal["x1"] * xf)
             y = gy + int(gh * cal["y1"])
-            rw = int(gw * (cal["x2"] - cal["x1"]))
+            rw = int(gw * (cal["x2"] - cal["x1"]) * xf)
             rh = int(gh * (cal["y2"] - cal["y1"]))
         else:
             defaults = {
@@ -86,8 +87,8 @@ class OcrMixin:
             if stat_name not in defaults:
                 return 0
             rx, ry, rwr, rhr = defaults[stat_name]
-            x, y = gx + int(gw * rx), gy + int(gh * ry)
-            rw, rh = int(gw * rwr), int(gh * rhr)
+            x, y = gx + int(gw * rx * xf), gy + int(gh * ry)
+            rw, rh = int(gw * rwr * xf), int(gh * rhr)
         roi = screenshot[y:y+rh, x:x+rw]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
@@ -115,11 +116,12 @@ class OcrMixin:
     def read_energy_percentage(self, screenshot: np.ndarray) -> float:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
         eb = self._calibration.get("energy_bar", {})
+        xf = self._aspect_x_factor(gw, gh)
 
         bar_y1 = gy + int(gh * eb.get("y1", 0.082))
         bar_y2 = gy + int(gh * eb.get("y2", 0.098))
-        bar_x1 = gx + int(gw * eb.get("x1", 0.33))
-        bar_x2 = gx + int(gw * eb.get("x2", 0.69))
+        bar_x1 = gx + int(gw * eb.get("x1", 0.33) * xf)
+        bar_x2 = gx + int(gw * eb.get("x2", 0.69) * xf)
 
         roi = screenshot[bar_y1:bar_y2, bar_x1:bar_x2]
         if roi.size == 0:
@@ -161,10 +163,11 @@ class OcrMixin:
 
     def detect_mood(self, screenshot: np.ndarray) -> str:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
-        y1 = gy + int(gh * 0.095)
-        y2 = gy + int(gh * 0.155)
-        x1 = gx + int(gw * 0.70)
-        x2 = gx + int(gw * 0.90)
+        mz = self._calibration.get("mood_zone", {})
+        y1 = gy + int(gh * mz.get("y1", 0.095))
+        y2 = gy + int(gh * mz.get("y2", 0.155))
+        x1 = gx + int(gw * mz.get("x1", 0.70))
+        x2 = gx + int(gw * mz.get("x2", 0.90))
         roi = screenshot[y1:y2, x1:x2]
         if roi.size == 0:
             return "unknown"
@@ -196,11 +199,12 @@ class OcrMixin:
 
     def read_event_title(self, screenshot: np.ndarray) -> str:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
+        xf = self._aspect_x_factor(gw, gh)
         et = self._calibration.get("event_title", {})
         y1 = gy + int(gh * et.get("y1", 0.13))
         y2 = gy + int(gh * et.get("y2", 0.22))
-        x1 = gx + int(gw * et.get("x1", 0.10))
-        x2 = gx + int(gw * et.get("x2", 0.90))
+        x1 = gx + int(gw * et.get("x1", 0.10) * xf)
+        x2 = gx + int(gw * et.get("x2", 0.90) * xf)
         title_roi = screenshot[y1:y2, x1:x2]
         if title_roi.size == 0:
             return ""
@@ -222,11 +226,12 @@ class OcrMixin:
         if screenshot is None:
             screenshot = self.take_screenshot()
         gx, gy, gw, gh = self.get_game_rect(screenshot)
+        xf = self._aspect_x_factor(gw, gh)
         dd = self._calibration.get("date_display", {})
         y1 = gy + int(gh * dd.get("y1", 0.025))
         y2 = gy + int(gh * dd.get("y2", 0.060))
-        x1 = gx + int(gw * dd.get("x1", 0.15))
-        x2 = gx + int(gw * dd.get("x2", 0.85))
+        x1 = gx + int(gw * dd.get("x1", 0.15) * xf)
+        x2 = gx + int(gw * dd.get("x2", 0.85) * xf)
         roi = screenshot[y1:y2, x1:x2]
         if roi.size == 0:
             return None
@@ -319,10 +324,11 @@ class OcrMixin:
 
     def read_event_text(self, screenshot: np.ndarray) -> str:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
+        xf = self._aspect_x_factor(gw, gh)
         et = self._calibration.get("event_text", {})
         body_roi = screenshot[
             gy + int(gh * et.get("y1", 0.28)):gy + int(gh * et.get("y2", 0.55)),
-            gx + int(gw * et.get("x1", 0.08)):gx + int(gw * et.get("x2", 0.82))
+            gx + int(gw * et.get("x1", 0.08) * xf):gx + int(gw * et.get("x2", 0.82) * xf)
         ]
         try:
             Path("logs/debug").mkdir(parents=True, exist_ok=True)
@@ -365,37 +371,61 @@ class OcrMixin:
 
     def read_stats(self, screenshot: np.ndarray) -> Optional[Dict[str, int]]:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
-        bar_y1 = gy + int(gh * 0.665)
-        bar_y2 = gy + int(gh * 0.690)
-        bar = screenshot[bar_y1:bar_y2, gx:gx + gw]
-        if bar.size == 0:
-            return None
+        is_steam = getattr(self, 'config', {}).get("platform", "google_play") == "steam"
 
-        gray = cv2.cvtColor(bar, cv2.COLOR_BGR2GRAY)
+        dbg_dir = Path("logs/debug/stats")
+        dbg_dir.mkdir(parents=True, exist_ok=True)
 
         stats: Dict[str, int] = {}
         try:
-            for name, (frac_x1, frac_x2) in self._STAT_COLUMNS.items():
-                cx1 = int(gw * frac_x1)
-                cx2 = int(gw * frac_x2)
-                col_w = cx2 - cx1
+            for name in self.STAT_NAMES:
+                cal = self._calibration.get(f"stat_{name}")
+                if cal and "x1" in cal:
+                    sx1 = max(0, gx + int(gw * cal["x1"]))
+                    sx2 = min(screenshot.shape[1], gx + int(gw * cal["x2"]))
+                    sy1 = gy + int(gh * 0.665)
+                    sy2 = gy + int(gh * 0.690)
+                else:
+                    frac_x1, frac_x2 = self._STAT_COLUMNS.get(name, (0, 0))
+                    sx1 = gx + int(gw * frac_x1)
+                    sx2 = gx + int(gw * frac_x2)
+                    sy1 = gy + int(gh * 0.665)
+                    sy2 = gy + int(gh * 0.690)
+
+                if is_steam:
+                    pad_x = max(3, int((sx2 - sx1) * 0.06))
+                    sx1 = max(0, sx1 - pad_x)
+                    sx2 = min(screenshot.shape[1], sx2 + pad_x)
+
+                roi = screenshot[sy1:sy2, sx1:sx2]
+                if roi.size == 0:
+                    continue
+
+                cv2.imwrite(str(dbg_dir / f"{name}_roi.png"), roi)
+
+                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                col_w = sx2 - sx1
                 right_guard = max(5, int(col_w * 0.15))
 
+                thresholds = (130, 140, 150, 160, 170, 180) if is_steam else (160, 170, 180)
+                left_pcts = (0, 2, 5) if is_steam else (0, 5, 10)
+                steam_scale = 5
+
                 candidates: list = []
-                for thresh in (160, 170, 180):
+                for thresh in thresholds:
                     _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
-                    for left_pct in (0, 5, 10):
+                    for left_pct in left_pcts:
                         left_m = max(1, int(col_w * left_pct / 100))
-                        x_start = cx1 + left_m
-                        x_end = cx2 - right_guard
+                        x_start = left_m
+                        x_end = binary.shape[1] - right_guard
                         if x_end <= x_start:
                             continue
-                        roi = binary[:, x_start:x_end]
-                        if roi.size == 0:
+                        strip = binary[:, x_start:x_end]
+                        if strip.size == 0:
                             continue
-                        scale = 4
-                        big = cv2.resize(roi,
-                                         (roi.shape[1] * scale, roi.shape[0] * scale),
+                        scale = steam_scale if is_steam else 4
+                        big = cv2.resize(strip,
+                                         (strip.shape[1] * scale, strip.shape[0] * scale),
                                          interpolation=cv2.INTER_CUBIC)
                         big = cv2.copyMakeBorder(big, 15, 15, 20, 20,
                                                  cv2.BORDER_CONSTANT, value=0)

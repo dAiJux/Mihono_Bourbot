@@ -7,6 +7,8 @@ class GameScreen(Enum):
     EVENT = "event"
     RACE = "race"
     RACE_SELECT = "race_select"
+    INSUFFICIENT_FANS = "insufficient_fans"
+    SCHEDULED_RACE_POPUP = "scheduled_race_popup"
     RACE_RESULT = "race_result"
     STRATEGY = "strategy"
     UNITY = "unity"

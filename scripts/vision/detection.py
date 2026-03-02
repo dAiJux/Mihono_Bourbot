@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
 from typing import Tuple, Optional, List
-from pathlib import Path
 
 from ..models import GameScreen
 
@@ -31,6 +30,11 @@ class DetectionMixin:
         if self.find_template("recreation_popup", screenshot, 0.70):
             return GameScreen.RECREATION
 
+        strat_count = sum(1 for s in ["strategy_end", "strategy_late", "strategy_pace", "strategy_front"]
+                          if self.find_template(s, screenshot, 0.80))
+        if strat_count >= 2:
+            return GameScreen.STRATEGY
+
         if self.find_template("buy_skill", screenshot, 0.82) or \
            self.find_template("learn_btn", screenshot, 0.72) or \
            self.find_template("confirm_btn", screenshot, 0.72):
@@ -39,6 +43,12 @@ class DetectionMixin:
         for tpl, thr in [("btn_race_start", 0.70), ("btn_race_start_ura", 0.70)]:
             if self.find_template(tpl, screenshot, thr):
                 return GameScreen.RACE
+
+        banner = self.identify_popup_banner(screenshot)
+        if banner == "insufficient_fans":
+            return GameScreen.INSUFFICIENT_FANS
+        if banner == "scheduled_race":
+            return GameScreen.SCHEDULED_RACE_POPUP
 
         if self.find_template("btn_race", screenshot, 0.80):
             if not self.find_template("btn_race_launch", screenshot, 0.75):
@@ -59,16 +69,11 @@ class DetectionMixin:
                     return GameScreen.TRAINING
 
         if self.config.get("scenario", "unity_cup") != "ura":
-            if self.find_template("unity_training", screenshot, 0.65):
+            if self.find_template("white_burst", screenshot, 0.65):
                 return GameScreen.TRAINING
 
         if self.find_template("btn_inspiration", screenshot, 0.70):
             return GameScreen.INSPIRATION
-
-        strat_count = sum(1 for s in ["strategy_end", "strategy_late", "strategy_pace", "strategy_front"]
-                          if self.find_template(s, screenshot, 0.80))
-        if strat_count >= 4:
-            return GameScreen.STRATEGY
 
         if self.config.get("scenario", "unity_cup") != "ura":
             if self.find_template("btn_unity_launch", screenshot, 0.75) or \
@@ -126,16 +131,29 @@ class DetectionMixin:
         return result
 
     def find_template(self, template_name: str, screenshot: np.ndarray = None, threshold: float = 0.8) -> Optional[Tuple[int, int]]:
+        pos, _ = self.find_template_conf(template_name, screenshot, threshold)
+        return pos
+
+    def find_template_conf(self, template_name: str, screenshot: np.ndarray = None, threshold: float = 0.8) -> Tuple[Optional[Tuple[int, int]], float]:
         if screenshot is None:
             screenshot = self.take_screenshot()
         self._update_scale(screenshot)
         templ = self._get_scaled_template(template_name)
         if templ is None:
-            return None
+            return None, 0.0
 
         search_img, off_x, off_y = self._get_search_area(template_name, screenshot)
         if search_img.shape[0] < templ.shape[0] or search_img.shape[1] < templ.shape[1]:
-            return None
+            need_h = max(0, templ.shape[0] - search_img.shape[0])
+            need_w = max(0, templ.shape[1] - search_img.shape[1])
+            new_y1 = max(0, off_y - (need_h + 1) // 2)
+            new_x1 = max(0, off_x - (need_w + 1) // 2)
+            new_y2 = min(screenshot.shape[0], off_y + search_img.shape[0] + need_h // 2 + 1)
+            new_x2 = min(screenshot.shape[1], off_x + search_img.shape[1] + need_w // 2 + 1)
+            search_img = screenshot[new_y1:new_y2, new_x1:new_x2]
+            off_x, off_y = new_x1, new_y1
+            if search_img.shape[0] < templ.shape[0] or search_img.shape[1] < templ.shape[1]:
+                return None, 0.0
 
         use_gray = template_name in self._GRAYSCALE_TEMPLATES
         use_mask = template_name in self._CHARACTER_OVERLAY_TEMPLATES
@@ -159,11 +177,11 @@ class DetectionMixin:
         _, max_val, _, max_loc = cv2.minMaxLoc(res)
         if max_val >= threshold:
             if not self._check_brightness_gate(template_name, search_img, max_loc, templ.shape):
-                return None
-            return (max_loc[0] + templ.shape[1] // 2 + off_x, max_loc[1] + templ.shape[0] // 2 + off_y)
+                return None, max_val
+            return (max_loc[0] + templ.shape[1] // 2 + off_x, max_loc[1] + templ.shape[0] // 2 + off_y), max_val
 
         if max_val < threshold * 0.6:
-            return None
+            return None, max_val
 
         best_val = max_val
         best_loc = None
@@ -192,9 +210,9 @@ class DetectionMixin:
 
         if best_val >= threshold and best_loc is not None:
             if not self._check_brightness_gate(template_name, search_img, best_loc, best_shape):
-                return None
-            return (best_loc[0] + best_shape[1] // 2 + off_x, best_loc[1] + best_shape[0] // 2 + off_y)
-        return None
+                return None, best_val
+            return (best_loc[0] + best_shape[1] // 2 + off_x, best_loc[1] + best_shape[0] // 2 + off_y), best_val
+        return None, best_val
 
     def find_all_template(self, template_name: str, screenshot: np.ndarray = None, threshold: float = 0.8, min_distance: int = 0) -> List[Tuple[int, int]]:
         if screenshot is None:
@@ -372,6 +390,20 @@ class DetectionMixin:
     def detect_scheduled_race(self, screenshot: np.ndarray) -> bool:
         return self.find_template("scheduled_race", screenshot, 0.8) is not None
 
+    def identify_popup_banner(self, screenshot: np.ndarray) -> Optional[str]:
+        _, sched_conf = self.find_template_conf("scheduled_race_popup", screenshot, 0.65)
+        _, insuf_conf = self.find_template_conf("insufficient_fans", screenshot, 0.65)
+        if sched_conf < 0.70 and insuf_conf < 0.70:
+            return None
+        if sched_conf >= 0.70 and insuf_conf >= 0.70:
+            self.logger.info(
+                f"Both banners matched: scheduled={sched_conf:.3f} insufficient={insuf_conf:.3f}"
+            )
+            return "scheduled_race" if sched_conf >= insuf_conf else "insufficient_fans"
+        if sched_conf >= 0.70:
+            return "scheduled_race"
+        return "insufficient_fans"
+
     def detect_unity_cup(self, screenshot: Optional[np.ndarray] = None) -> bool:
         if screenshot is None:
             screenshot = self.take_screenshot()
@@ -385,9 +417,10 @@ class DetectionMixin:
         uz = self._calibration.get("unity_opponent_zone", {})
         if not uz:
             return []
-        x1 = max(0, gx + int(gw * uz.get("x1", 0)))
+        xf = self._aspect_x_factor(gw, gh)
+        x1 = max(0, gx + int(gw * uz.get("x1", 0) * xf))
         y1 = max(0, gy + int(gh * uz.get("y1", 0)))
-        x2 = min(screenshot.shape[1], gx + int(gw * uz.get("x2", 1)))
+        x2 = min(screenshot.shape[1], gx + int(gw * uz.get("x2", 1) * xf))
         y2 = min(screenshot.shape[0], gy + int(gh * uz.get("y2", 1)))
         zone = screenshot[y1:y2, x1:x2]
         if zone.size == 0:
@@ -430,7 +463,7 @@ class DetectionMixin:
     def is_at_career_complete(self, screenshot: Optional[np.ndarray] = None) -> bool:
         if screenshot is None:
             screenshot = self.take_screenshot()
-        if self.find_template("complete_career", screenshot, 0.8) is not None:
+        if self.find_template("complete_career", screenshot, 0.9) is not None:
             return True
         return False
 
@@ -492,8 +525,9 @@ class DetectionMixin:
 
         scan_y1 = int(gh * 0.75)
         scan_y2 = int(gh * 1.00)
-        scan_x1 = int(gw * 0.10)
-        scan_x2 = int(gw * 0.90)
+        xf = self._aspect_x_factor(gw, gh)
+        scan_x1 = int(gw * 0.10 * xf)
+        scan_x2 = int(gw * 0.90 * xf)
         region_mask = pink_mask[scan_y1:scan_y2, scan_x1:scan_x2]
 
         if np.sum(region_mask > 0) < 800:

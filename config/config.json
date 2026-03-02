@@ -9,11 +9,11 @@
         "fullscreen_fallback": false
     },
     "training_targets": {
-        "speed": 600,
-        "stamina": 600,
-        "power": 600,
+        "speed": 1200,
+        "stamina": 800,
+        "power": 700,
         "wit": 600,
-        "guts": 600,
+        "guts": 400,
         "tolerance": 50
     },
     "stat_priority": [
@@ -24,7 +24,8 @@
         "guts"
     ],
     "race_strategy": {
-        "default": "Front"
+        "default": "Pace",
+        "force_race_insufficient_fans": false
     },
     "thresholds": {
         "energy_low": 40,
@@ -54,6 +55,25 @@
         "learn_from_choices": false
     },
     "scenario": "unity_cup",
+    "platform": "google_play",
+    "window_title": "Umamusume: Pretty Derby - dAiJux",
+    "skill_wishlist": [
+        "Corner Adept \u25cb",
+        "Corner Recovery \u25cb",
+        "Medium Corners \u25cb",
+        "Long Corners \u25cb",
+        "Pace Chaser Corners \u25cb",
+        "Professor of Curvature",
+        "Ramp Up",
+        "Straightaway Adept",
+        "Medium Straightaways \u25cb",
+        "Long Straightaways \u25cb",
+        "Pace Chaser Straightaways \u25cb",
+        "Gourmand",
+        "All I've Got",
+        "Nimble Navigator"
+    ],
+    "skill_check_interval": 8,
     "roi_calibration": {
         "game_rect": {
             "x1": 0.3106,
@@ -115,7 +135,5 @@
             "event_choices": false,
             "training": true
         }
-    },
-    "skill_wishlist": [],
-    "skill_check_interval": 8
+    }
 }

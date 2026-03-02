@@ -1,3 +1,4 @@
+from ..models import GameScreen
 
 
 class EventMixin:
@@ -29,11 +30,45 @@ class EventMixin:
             self.logger.critical("CAREER COMPLETE detected — aborting event handling!")
             return False
 
+        screen_check = self.vision.detect_screen(screenshot)
+        if screen_check not in (GameScreen.EVENT, GameScreen.UNKNOWN,
+                                GameScreen.INSUFFICIENT_FANS, GameScreen.SCHEDULED_RACE_POPUP):
+            self.logger.info(f"handle_event called but screen is {screen_check.value} — aborting")
+            self._last_event_title = ""
+            self._consecutive_event_count = 0
+            return False
+
         event_title = self.vision.read_event_title(screenshot)
         event_text = self.vision.read_event_text(screenshot)
         match_text = f"{event_title} {event_text}".strip() if event_title else event_text
 
         self.logger.info(f"Event title: '{event_title[:60]}'") if event_title else None
+
+        TITLE_GUARD_THRESHOLD = 0.55
+        if event_title and len(event_title.strip()) > 3:
+            title_ratio = self.decision.get_title_match_ratio(event_title, event_database)
+            if title_ratio < TITLE_GUARD_THRESHOLD:
+                title_key = event_title.lower().strip()
+                if title_key == self._last_event_title:
+                    self._consecutive_event_count += 1
+                else:
+                    self._last_event_title = title_key
+                    self._consecutive_event_count = 1
+
+                if self._consecutive_event_count < 2:
+                    self.logger.info(
+                        f"Title guard: '{event_title[:40]}' best match "
+                        f"{title_ratio:.0%} < {TITLE_GUARD_THRESHOLD:.0%} — likely false detection"
+                    )
+                    return False
+                else:
+                    self.logger.info(
+                        f"Title guard: '{event_title[:40]}' seen "
+                        f"{self._consecutive_event_count}x consecutively — proceeding"
+                    )
+            else:
+                self._last_event_title = ""
+                self._consecutive_event_count = 0
 
         gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
         ec = self.vision._calibration.get("event_choices", {})
@@ -51,8 +86,8 @@ class EventMixin:
 
         if not choices:
             self.logger.info("No choices yet — waiting for dialogue to finish...")
-            for attempt in range(6):
-                self.wait(3.0)
+            for attempt in range(4):
+                self.wait(1.5)
                 screenshot = self.vision.take_screenshot()
                 event_type = self.vision.detect_event_type(screenshot)
                 if not event_type:
@@ -66,13 +101,13 @@ class EventMixin:
                 ]
                 choices.sort(key=lambda pos: pos[1])
                 if 1 <= len(choices) <= 5:
-                    self.logger.info(f"Choices appeared after {(attempt + 1) * 3}s wait ({len(choices)} found)")
+                    self.logger.info(f"Choices appeared after {(attempt + 1) * 1.5:.1f}s wait ({len(choices)} found)")
                     event_title = self.vision.read_event_title(screenshot)
                     event_text = self.vision.read_event_text(screenshot)
                     match_text = f"{event_title} {event_text}".strip() if event_title else event_text
                     break
             else:
-                self.logger.warning("Choices never appeared after 18s — giving up")
+                self.logger.warning("Choices never appeared after 6s — giving up")
                 return False
 
         self.logger.info(f"Found {len(choices)} event choices, text: {match_text[:80] if match_text else 'N/A'}")

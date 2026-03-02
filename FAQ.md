@@ -36,8 +36,8 @@ python Scripts\pywin32_postinstall.py -install
 ### "Game window not found"
 
 - Game must be running and **visible** (not minimized)
-- Window title must contain one of: `umamusume`, `ウマ娘`, `pretty derby`, `dmm`
-- For other emulators, add the window title to `GAME_WINDOW_TITLES` in `capture.py`
+- Use the **Window** tab in the GUI to manually select the game window — this works with any emulator or player
+- If no window is selected, auto-detect uses these title keywords: `umamusume`, `ウマ娘`, `pretty derby`, `dmm`
 
 ---
 
@@ -109,7 +109,7 @@ Energy threshold is too high. Lower `thresholds.energy_training` in `config/conf
 
 ### OCR reads wrong stat values
 
-- Use 1920×1080 (720p is less reliable)
+- Templates auto-scale to any resolution, but very small windows may reduce OCR accuracy
 - Verify EasyOCR: `python -c "import easyocr; print('OK')"`
 - Models must have been downloaded (requires internet on first run)
 

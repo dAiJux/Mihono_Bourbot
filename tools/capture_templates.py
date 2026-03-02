@@ -29,7 +29,7 @@ _RACE = {"btn_race", "btn_race_confirm", "btn_race_launch", "btn_race_start",
          "scheduled_race", "target_race", "race_view_results_off", "race_view_results_on"}
 _UNITY = {"btn_begin_showdown", "btn_launch_final_unity", "btn_next_unity",
           "btn_see_unity_results", "btn_select_opponent", "btn_unity_launch",
-          "unity_opponent_card", "unity_training", "btn_claw_machine"}
+          "unity_opponent_card", "btn_claw_machine"}
 _EVENT = {"event_choice", "event_scenario_window", "event_support_window", "event_trainee_window"}
 _STATUS = {"mood_awful", "mood_bad", "mood_good", "mood_great", "mood_normal",
            "energy_bar_depleted", "energy_bar_empty", "energy_bar_full"}
@@ -45,7 +45,7 @@ def _template_category(name: str) -> str:
         return "events"
     if name in _STATUS:
         return "status"
-    if name.startswith(("training_", "type_", "friend_bar_", "rainbow", "blue_burst", "spirit_burst")):
+    if name.startswith(("training_", "type_", "friend_bar_", "rainbow")) or name in ("white_burst", "blue_burst"):
         return "training"
     return "common"
 

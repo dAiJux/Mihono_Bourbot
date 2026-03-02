@@ -145,7 +145,7 @@ class SkillsMixin:
                 if tpl_close is not None and tpl_close.shape[0] <= game.shape[0] and tpl_close.shape[1] <= game.shape[1]:
                     res = cv2.matchTemplate(game, tpl_close, cv2.TM_CCOEFF_NORMED)
                     _, mv, _, ml = cv2.minMaxLoc(res)
-                    if mv >= 0.75:
+                    if mv >= 0.82:
                         cx = gx + ml[0] + tpl_close.shape[1] // 2
                         cy = gy + ml[1] + tpl_close.shape[0] // 2
                         self.logger.info(f"Skills Learned popup (attempt {attempt+1}) — btn_close at ({cx},{cy}) conf={mv:.3f}")
@@ -153,7 +153,7 @@ class SkillsMixin:
                         time.sleep(1.2)
                         found = True
                 if not found:
-                    pos = self.vision.find_template("btn_close", screenshot, threshold=0.75)
+                    pos = self.vision.find_template("btn_close", screenshot, threshold=0.82)
                     if pos:
                         self.logger.info(f"Skills Learned popup (attempt {attempt+1}) — btn_close fallback at {pos}")
                         self.click_with_offset(*pos)
@@ -249,8 +249,8 @@ class SkillsMixin:
         icon_x: int, icon_y: int,
         gx: int, gw: int, gh: int, gy: int
     ) -> str:
-        x1 = gx + int(gw * 0.08)
-        x2 = gx + int(gw * 0.73)
+        x1 = gx + int(gw * 0.08 * self.vision._aspect_x_factor(gw, gh))
+        x2 = gx + int(gw * 0.73 * self.vision._aspect_x_factor(gw, gh))
         search_top = max(gy, icon_y - int(gh * 0.100))
         search_bot = max(gy + 1, icon_y - int(gh * 0.008))
 
@@ -392,9 +392,9 @@ class SkillsMixin:
             if self._check_stopped():
                 return
             screenshot = self.vision.take_screenshot()
-            if self.vision.find_template("btn_close", screenshot, threshold=0.75):
+            if self.vision.find_template("btn_close", screenshot, threshold=0.82):
                 self.logger.info("Skill screen: closing popup via btn_close")
-                self.click_button("btn_close", screenshot, threshold=0.75)
+                self.click_button("btn_close", screenshot, threshold=0.82)
                 self.wait(0.8)
                 continue
             if self.vision.find_template("btn_back", screenshot, threshold=0.75):

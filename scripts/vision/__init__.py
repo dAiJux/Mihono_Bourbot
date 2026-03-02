@@ -41,8 +41,7 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         "race_view_results_off": "race_view_results",
         "training_selected": "training_zone",
         "rainbow_training": "training_zone",
-        "unity_training": "training_zone",
-        "spirit_burst": "training_zone",
+        "white_burst": "training_zone",
         "icon_rainbow": "training_zone",
         "burst_white": "support_region",
         "burst_blue": "support_region",
@@ -61,7 +60,7 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
     _TPL_FILE_ALIASES = {
         "btn_race_scheduled": "btn_race_start",
         "burst_blue": "blue_burst",
-        "burst_white": "unity_training",
+        "burst_white": "white_burst",
     }
 
     _GRAYSCALE_TEMPLATES: set = set()
@@ -93,26 +92,27 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         self.templates_dir = Path("templates")
         self._template_paths: Dict[str, Path] = {}
         self._index_templates()
-        self._ref_width: Optional[int] = self._load_ref_width()
+        self._ref_width: Optional[int] = None
+        self._ref_height: Optional[int] = None
+        self._load_ref_dimensions()
         self._current_scale: float = 1.0
         self._scaled_for_width: Optional[int] = None
         self._client_offset_x = 0
         self._client_offset_y = 0
         self._calibration = self._load_calibration()
 
-    def _load_ref_width(self) -> Optional[int]:
-        """Load the reference game width templates were captured at."""
+    def _load_ref_dimensions(self):
         meta = self.templates_dir / "meta.json"
         if meta.exists():
             try:
                 with open(meta, encoding="utf-8") as f:
-                    return json.load(f).get("reference_width")
+                    data = json.load(f)
+                self._ref_width = data.get("reference_width")
+                self._ref_height = data.get("reference_height")
             except Exception:
                 pass
-        return None
 
-    def save_ref_width(self, width: int):
-        """Save the current game width as the reference for template scaling."""
+    def save_ref_width(self, width: int, height: int = 0):
         meta = self.templates_dir / "meta.json"
         data = {}
         if meta.exists():
@@ -122,25 +122,37 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
             except Exception:
                 pass
         data["reference_width"] = width
+        if height > 0:
+            data["reference_height"] = height
         with open(meta, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         self._ref_width = width
-        self.logger.info("Reference template width saved: %d", width)
+        if height > 0:
+            self._ref_height = height
+        self.logger.info("Reference template dimensions saved: %dx%d", width, height or 0)
 
     def _update_scale(self, screenshot: np.ndarray):
-        """Recompute template scale factor if game width changed."""
         if self._ref_width is None:
             self._auto_calibrate(screenshot)
             if self._ref_width is None:
                 return
-        _, _, gw, _ = self.get_game_rect(screenshot)
+        _, _, gw, gh = self.get_game_rect(screenshot)
         if gw == self._scaled_for_width:
             return
         self._scaled_for_width = gw
-        self._current_scale = gw / self._ref_width
+        if self._ref_height and self._ref_height > 0:
+            ref_aspect = self._ref_width / self._ref_height
+            game_aspect = gw / max(1, gh)
+            if abs(game_aspect - ref_aspect) / max(0.01, ref_aspect) > 0.05:
+                self._current_scale = gh / self._ref_height
+            else:
+                self._current_scale = gw / self._ref_width
+        else:
+            self._current_scale = gw / self._ref_width
         if abs(self._current_scale - 1.0) > 0.01:
-            self.logger.info("Template scale: %.3f (game %dpx, ref %dpx)",
-                             self._current_scale, gw, self._ref_width)
+            self.logger.info("Template scale: %.3f (game %dx%d, ref %dx%d)",
+                             self._current_scale, gw, gh,
+                             self._ref_width, self._ref_height or 0)
             self.templates.clear()
 
     def _scale_px(self, px: int) -> int:
@@ -213,11 +225,13 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
                 best_scale = scale
 
         ref_w = max(1, int(round(gw / best_scale)))
+        _, _, _, gh_cal = self.get_game_rect(screenshot)
+        ref_h = max(1, int(round(gh_cal / best_scale)))
         self.logger.info(
-            "Auto-calibrated: best scale=%.3f, score=%.3f → ref_width=%d (game_w=%d)",
-            best_scale, best_score, ref_w, gw,
+            "Auto-calibrated: best scale=%.3f, score=%.3f → ref=%dx%d (game=%dx%d)",
+            best_scale, best_score, ref_w, ref_h, gw, gh_cal,
         )
-        self.save_ref_width(ref_w)
+        self.save_ref_width(ref_w, ref_h)
 
     def _get_scaled_template(self, template_name: str) -> Optional[np.ndarray]:
         """Return a template scaled to match the current game window size."""

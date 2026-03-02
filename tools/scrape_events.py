@@ -1,675 +1,686 @@
 import urllib.request
-import re
 import json
 import sys
-import time
-import ssl
 import os
+import base64
+import re
 
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-ssl._create_default_https_context = ssl._create_unverified_context
-
+MANIFEST_URL = "https://gametora.com/data/manifests/umamusume.json"
+CDN_BASE = "https://gametora.com/data/umamusume"
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
-def fetch_page(url, retries=3):
-    for attempt in range(retries):
-        try:
-            req = urllib.request.Request(url, headers=HEADERS)
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.read().decode('utf-8', errors='replace')
-        except Exception as e:
-            print(f"  Retry {attempt+1}/{retries} for {url}: {e}")
-            time.sleep(2)
-    return None
+NAME_KEY = 106
+NAME_OFFSET = 86
+REWARD_OFFSET = 36
 
-def extract_event_links(html):
-    pattern = r'<a[^>]*href="(/games/Umamusume-Pretty-Derby/archives/(\d+))"[^>]*>([^<]+)</a>'
-    links = re.findall(pattern, html)
-    return links
+TYPE_MAP = {
+    "sp": "speed",
+    "st": "stamina",
+    "po": "power",
+    "gu": "guts",
+    "in": "wit",
+}
 
-def extract_trainee_event_mapping(html):
-    tables = re.findall(r'<table[^>]*a-table[^>]*>(.*?)</table>', html, re.DOTALL)
-    trainee_table = None
-    for t in tables:
-        if 'Trainee' in t:
-            trainee_table = t
-            break
-    if not trainee_table:
-        return {}
 
-    results = {}
-    rows = re.findall(r'<tr>(.*?)</tr>', trainee_table, re.DOTALL)
+def fetch_json(url):
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
-    for row in rows:
-        if 'Trainee' not in row:
-            continue
 
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
-        if len(cells) < 3:
-            continue
+def decrypt(encoded, key_num):
+    if not encoded:
+        return ""
+    raw = base64.b64decode(encoded)
+    key = f"k{key_num}".encode("utf-8")
+    return bytes(
+        b ^ key[i % len(key)] for i, b in enumerate(raw)
+    ).decode("utf-8", errors="replace")
 
-        type_cell = cells[1]
-        if 'Trainee' not in type_cell:
-            continue
 
-        char_alts = re.findall(r'alt="([^"]+?)\s*Image"', cells[0])
-        if not char_alts:
-            continue
+def fetch_cdn_data():
+    manifest = fetch_json(MANIFEST_URL)
 
-        base_names = set()
-        for alt in char_alts:
-            base = re.sub(r'\s*\([^)]*\)\s*$', '', alt).strip()
-            if base:
-                base_names.add(base)
+    def cdn(key):
+        return fetch_json(f"{CDN_BASE}/{key}.{manifest[key]}.json")
 
-        event_match = re.search(
-            r'href="https://game8\.co/games/Umamusume-Pretty-Derby/archives/(\d+)"[^>]*>([^<]+)</a>',
-            cells[2]
-        )
-        if not event_match:
-            continue
-
-        archive_id = event_match.group(1)
-        event_name = event_match.group(2).strip()
-
-        for char_name in base_names:
-            if char_name not in results:
-                results[char_name] = []
-            results[char_name].append({
-                'event_name': event_name,
-                'archive_id': archive_id,
-            })
-
-    return results
-
-def extract_card_event_mapping(html):
-    results = {}
-    
-    row_pattern = r'<tr>(.*?)</tr>'
-    rows = re.findall(row_pattern, html, re.DOTALL)
-    
-    for row in rows:
-        card_alts = re.findall(r"alt='([^']+?)\s*Image'", row)
-        card_names = [a.strip() for a in card_alts]
-        
-        event_match = re.search(
-            r"href=https://game8\.co/games/Umamusume-Pretty-Derby/archives/(\d+)>([^<]+)</a>\s*</td>",
-            row
-        )
-        
-        if card_names and event_match:
-            archive_id = event_match.group(1)
-            event_name = event_match.group(2).strip()
-            
-            primary_card = card_names[0]
-            
-            if primary_card not in results:
-                results[primary_card] = []
-            results[primary_card].append({
-                'event_name': event_name,
-                'archive_id': archive_id,
-                'all_cards': card_names
-            })
-    
-    return results
-
-def parse_effects(outcome_html):
-    effects = {}
-    text = re.sub(r'<[^>]+>', ' ', outcome_html)
-
-    stat_patterns = {
-        'speed': r'[-+]?\s*(\d+)\s*Speed',
-        'stamina': r'[-+]?\s*(\d+)\s*Stamina',
-        'power': r'[-+]?\s*(\d+)\s*Power',
-        'guts': r'[-+]?\s*(\d+)\s*Guts',
-        'wit': r'[-+]?\s*(\d+)\s*(?:Wis(?:dom)?|Wit)',
-        'energy': r'[-+]?\s*(\d+)\s*(?<!Max\s)Energy',
-        'max_energy': r'[-+]?\s*(\d+)\s*Max\s*Energy',
-        'skill_pts': r'[-+]?\s*(\d+)\s*Skill\s*Pt',
-        'friendship': r'[-+]?\s*(\d+)\s*Friendship',
-        'mood': r'[-+]?\s*(\d+)\s*(?:Mood|Motivation)',
+    print("  Downloading manifest and data files...")
+    return {
+        "te_names": cdn("dict/te_names_en"),
+        "evrew": cdn("dict/evrew"),
+        "characters": cdn("characters"),
+        "char_cards": cdn("character-cards"),
+        "supports": cdn("support-cards"),
+        "skills": cdn("skills"),
+        "status_effects": cdn("status-effects"),
+        "events_char": cdn("training_events/char"),
+        "events_char_card": cdn("training_events/char_card"),
+        "events_ssr": cdn("training_events/ssr"),
+        "events_sr": cdn("training_events/sr"),
+        "events_shared": cdn("training_events/shared"),
     }
 
-    for stat, pat in stat_patterns.items():
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            val = int(m.group(1))
-            neg_pat = r'(-)\s*' + str(val) + r'\s*'
-            if stat == 'max_energy':
-                neg_pat += r'Max\s*Energy'
-            elif stat == 'energy':
-                neg_pat += r'(?!Max)Energy'
-            else:
-                neg_pat += stat.replace('_', r'\s*')
-            full = re.search(neg_pat, text, re.IGNORECASE)
-            if full:
-                val = -val
-            effects[stat] = val
 
-    all_stats_match = re.search(r'[-+]?\s*(\d+)\s*All\s*Stats', text, re.IGNORECASE)
-    if all_stats_match:
-        val = int(all_stats_match.group(1))
-        neg = re.search(r'(-)\s*' + str(val) + r'\s*All\s*Stats', text, re.IGNORECASE)
-        if neg:
-            val = -val
-        for stat in ('speed', 'stamina', 'power', 'guts', 'wit'):
-            if stat not in effects:
-                effects[stat] = val
+_JP_RE = re.compile(r"[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]")
 
-    skills = []
-    for m in re.finditer(r'(?:・|\u30FB|\u00B7)\s*([^・\u30FB\u00B7]+?)\s*(?:[\u25CB\u25CE\u25CF\u25EF]\s*)?\+?(\d+)?\s*Skill\s*Hint', text, re.IGNORECASE):
-        name = re.sub(r'[\u25CB\u25CE\u25CF\u25EF\u25A0\u25A1\u25B2\u25B3]+', '', m.group(1)).strip()
-        level = int(m.group(2)) if m.group(2) else 1
-        if name and not re.match(r'^\d+$', name):
-            skills.append({"name": name, "level": level})
 
-    conditions = []
-    cond_patterns = [
-        r'(Practice\s+Perfect|Practice\s+Poor|Practice\s+Bad|Charming|Fast\s+Learner|'
-        r'Night\s+Owl|Slow\s+Metabolism|Overweight|Fragile|Lazy|'
-        r'Sharp|Good\s+Practice|Headstrong)',
-    ]
-    for pat in cond_patterns:
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            cond = m.group(1).strip()
-            if cond not in conditions:
-                conditions.append(cond)
+def get_event_name(te_names, raw_idx):
+    idx = raw_idx - NAME_OFFSET
+    if 0 <= idx < len(te_names) and te_names[idx]:
+        name = decrypt(te_names[idx], NAME_KEY)
+        if _JP_RE.search(name):
+            return ""
+        return name
+    return ""
 
-    return effects, skills, conditions
 
-def extract_event_choices(html, event_name):
-    choices = []
+def build_skill_map(skills):
+    return {
+        s["id"]: s.get("name_en", "")
+        for s in skills
+        if isinstance(s, dict) and "id" in s
+    }
 
-    table_match = re.search(
-        r"<table\s+class=['\"]a-table[^>]*>.*?<th[^>]*>\s*Choice\s*</th>\s*<th[^>]*>\s*Outcome\s*</th>.*?</table>",
-        html, re.DOTALL
+
+def build_status_effect_map(status_effects):
+    return {
+        se["id"]: se.get("name_en", "")
+        for se in status_effects
+        if isinstance(se, dict) and "id" in se
+    }
+
+
+def build_char_map(characters):
+    return {
+        c["char_id"]: c["en_name"]
+        for c in characters
+        if isinstance(c, dict) and "char_id" in c and "en_name" in c
+    }
+
+
+def build_global_char_ids(characters):
+    return set(
+        c["char_id"]
+        for c in characters
+        if isinstance(c, dict) and c.get("playable_en")
     )
-    if not table_match:
-        return []
 
-    table_html = table_match.group()
 
-    if re.search(r"No\s*Choices", table_html):
-        outcome_match = re.search(r"No\s*Choices.*?</td>\s*<td[^>]*>(.*?)</td>", table_html, re.DOTALL)
-        if outcome_match:
-            effects, skills, conditions = parse_effects(outcome_match.group(1))
-            choices.append({
-                'choice_num': 0,
-                'variant': 'auto',
-                'description': 'auto',
-                'effects': effects,
-                'skills': skills,
-                'conditions': conditions,
-            })
-        return choices
+def build_global_support_ids(supports):
+    return set(
+        s["support_id"]
+        for s in supports
+        if isinstance(s, dict) and s.get("release_en")
+    )
 
-    rows = re.findall(r'<tr>(.*?)</tr>', table_html, re.DOTALL)
-    for row in rows:
-        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
-        if len(cells) < 2:
-            continue
 
-        choice_cell = cells[0]
-        outcome_cell = cells[1]
-
-        choice_match = re.search(r"<b\s+class=['\"]a-bold['\"]>\s*Choice\s+(\d+)\s*</b>", choice_cell)
-        if not choice_match:
-            continue
-
-        choice_num = int(choice_match.group(1))
-
-        variant = ''
-        variant_match = re.search(r'\(\s*(Success|Fail)\s*\)', choice_cell, re.IGNORECASE)
-        if variant_match:
-            variant = variant_match.group(1).strip().lower()
-
-        description = ''
-        desc_match = re.search(r'<hr[^>]*>\s*\(([^)]*)\)', choice_cell)
-        if desc_match:
-            description = desc_match.group(1).strip()
-
-        effects, skills, conditions = parse_effects(outcome_cell)
-        choices.append({
-            'choice_num': choice_num,
-            'variant': variant,
-            'description': description,
-            'effects': effects,
-            'skills': skills,
-            'conditions': conditions,
-        })
-
-    return choices
-
-def build_choices_data(choices):
-    if not choices:
-        return {}
-
+def build_support_map(supports):
     result = {}
-    for c in choices:
-        num = str(c['choice_num'])
-        variant = c.get('variant', '') or ''
-        entry = {
-            "description": c.get('description', ''),
-            "effects": c['effects'],
-            "skills": c.get('skills', []),
-            "conditions": c.get('conditions', []),
+    for s in supports:
+        if not isinstance(s, dict) or "support_id" not in s:
+            continue
+        result[s["support_id"]] = {
+            "name": s.get("char_name", ""),
+            "url_name": s.get("url_name", ""),
+            "rarity": s.get("rarity", ""),
+            "type": s.get("type", ""),
+            "support_id": s["support_id"],
         }
-
-        if variant in ('success', 'fail'):
-            if num not in result:
-                result[num] = {
-                    "description": c.get('description', ''),
-                    "outcomes": {}
-                }
-            elif "outcomes" not in result[num]:
-                existing = result[num]
-                result[num] = {
-                    "description": existing.get("description", ""),
-                    "outcomes": {
-                        "default": {
-                            "effects": existing.get("effects", {}),
-                            "skills": existing.get("skills", []),
-                            "conditions": existing.get("conditions", []),
-                        }
-                    }
-                }
-            result[num]["outcomes"][variant] = {
-                "effects": c['effects'],
-                "skills": c.get('skills', []),
-                "conditions": c.get('conditions', []),
-            }
-        else:
-            result[num] = entry
-
     return result
 
-SSR_CARDS = {
-    "Sasami Anshinzawa (This Might Sting!)": "SSR Speed",
-    "Matikanefukukitaru (Touching Sleeves Is Good Luck!)": "SSR Speed",
-    "Silence Suzuka (Searching for Unseen Sights)": "SSR Speed",
-    "Mayano Top Gun (Party Formation)": "SSR Speed",
-    "Zenno Rob Roy (Magical Heroine)": "SSR Speed",
-    "Sweep Tosho (It's All Mine!)": "SSR Speed",
-    "Narita Brian (Two Pieces)": "SSR Speed",
-    "Gold Ship (That Time I Became the Strongest)": "SSR Speed",
-    "Kawakami Princess (Princess Bride)": "SSR Speed",
-    "Kitasan Black (Fire at My Heels)": "SSR Speed",
-    "Special Week (The Setting Sun and Rising Stars)": "SSR Speed",
-    "Twin Turbo (Turbo Booooost!)": "SSR Speed",
-    "Biko Pegasus (Double Carrot Punch!)": "SSR Speed",
-    "Nishino Flower (Even the Littlest Bud)": "SSR Speed",
-    "Sakura Bakushin O (Eat Fast! Yum Fast!)": "SSR Speed",
-    "Gold City (Run (my) way)": "SSR Speed",
-    "Tokai Teio (Dream Big!)": "SSR Speed",
-    "Silence Suzuka (Beyond This Shining Moment)": "SSR Speed",
-    "Meisho Doto (Leaping into the Unknown)": "SSR Stamina",
-    "Manhattan Cafe (My Solo Spun in Spiraling Runs)": "SSR Stamina",
-    "Narita Brian (The Whistling Arrow's Taunt)": "SSR Stamina",
-    "Nakayama Festa (43, 8, 1)": "SSR Stamina",
-    "Silence Suzuka (Winning Dream)": "SSR Stamina",
-    "Winning Ticket (Full-Blown Tantrum)": "SSR Stamina",
-    "Sakura Chiyono O (Peak Sakura Season)": "SSR Stamina",
-    "Satono Diamond (The Will to Overtake)": "SSR Stamina",
-    "Rice Shower (Showered in Joy)": "SSR Stamina",
-    "Mejiro McQueen (Your Team Ace)": "SSR Stamina",
-    "Super Creek (Piece of Mind)": "SSR Stamina",
-    "Tamamo Cross (Split the Sky, White Lightning!)": "SSR Stamina",
-    "Seiun Sky (Foolproof Plan)": "SSR Stamina",
-    "Gold Ship (Breakaway Battleship)": "SSR Stamina",
-    "Admire Vega (Lucky Star in the Sky)": "SSR Power",
-    "Bamboo Memory (Head-On Fight!)": "SSR Power",
-    "Daitaku Helios (Make! Some! NOISE!)": "SSR Power",
-    "Daiwa Scarlet (Mini Vacation)": "SSR Power",
-    "El Condor Pasa (Champion's Passion)": "SSR Power",
-    "King Halo (Tonight, We Waltz)": "SSR Power",
-    "Marvelous Sunday (Dazzling Day in the Snow)": "SSR Power",
-    "Oguri Cap (Get Lots of Hugs for Me)": "SSR Power",
-    "Rice Shower (Happiness Just around the Bend)": "SSR Power",
-    "Smart Falcon (My Umadol Way!)": "SSR Power",
-    "Tamamo Cross (Beware! Halloween Night!)": "SSR Power",
-    "Vodka (Wild Rider)": "SSR Power",
-    "Winning Ticket (Dreams Do Come True!)": "SSR Power",
-    "Yaeno Muteki (Fiery Discipline)": "SSR Power",
-    "Yukino Bijin (Dancing Light into the Night)": "SSR Guts",
-    "Ikuno Dictus (Warm Heart, Soft Steps)": "SSR Guts",
-    "Mejiro Ryan (Winning Pitch)": "SSR Guts",
-    "Hishi Akebono (Who Wants the First Bite?)": "SSR Guts",
-    "Matikane Tannhauser (Just Keep Going)": "SSR Guts",
-    "Mejiro Palmer (Go Ahead and Laugh)": "SSR Guts",
-    "Haru Urara (Urara's Day Off!)": "SSR Guts",
-    "Winning Ticket (BNWinner!)": "SSR Guts",
-    "Ines Fujin (Watch My Star Fly!)": "SSR Guts",
-    "Grass Wonder (Fairest Fleur)": "SSR Guts",
-    "Special Week (The Brightest Star in Japan)": "SSR Guts",
-    "Narita Taishin (Strict Shopper)": "SSR Wit",
-    "Curren Chan (Cutie Pie with Shining Eyes)": "SSR Wit",
-    "Mihono Bourbon (The Ghost Finds Halloween Magic)": "SSR Wit",
-    "Nice Nature (Daring to Dream)": "SSR Wit",
-    "Seiun Sky (Paint the Sky Red)": "SSR Wit",
-    "Mejiro Dober (My Thoughts, My Desires)": "SSR Wit",
-    "Yukino Bijin (Hometown Cheers)": "SSR Wit",
-    "Air Shakur (7 More Centimeters)": "SSR Wit",
-    "Fine Motion (Wave of Gratitude)": "SSR Wit",
-    "Sasami Anshinzawa (Pal SSR)": "SSR Pal",
-    "Riko Kashimoto (Planned Perfection)": "SSR Pal",
-    "Tazuna Hayakawa (Tracen Reception)": "SSR Pal",
+
+def parse_value(val_str):
+    if not val_str:
+        return 0
+    val_str = str(val_str).strip().lstrip("+")
+    if "/" in val_str:
+        parts = [p.strip().lstrip("+") for p in val_str.split("/")]
+        nums = [int(p) for p in parts if p.lstrip("-").isdigit()]
+        return round(sum(nums) / len(nums)) if nums else 0
+    try:
+        return int(val_str)
+    except ValueError:
+        return 0
+
+
+def decode_rewards(raw_indices, evrew):
+    results = []
+    for raw in raw_indices:
+        idx = raw - REWARD_OFFSET
+        if 0 <= idx < len(evrew) and evrew[idx]:
+            r = evrew[idx]
+            entry = {"t": r[0]}
+            if len(r) > 1:
+                entry["v"] = r[1]
+            if len(r) > 2:
+                entry["d"] = r[2]
+            results.append(entry)
+    return results
+
+
+def convert_results(results, skill_map, se_map):
+    effects = {}
+    skills = []
+    conditions = []
+    for r in results:
+        t = r.get("t", "")
+        v = r.get("v", "")
+        d = r.get("d")
+        if t == "di":
+            break
+        if t in TYPE_MAP:
+            val = parse_value(v)
+            if val:
+                effects[TYPE_MAP[t]] = effects.get(TYPE_MAP[t], 0) + val
+        elif t == "en":
+            val = parse_value(v)
+            if val:
+                effects["energy"] = effects.get("energy", 0) + val
+        elif t == "mo":
+            val = parse_value(v)
+            if val:
+                effects["mood"] = effects.get("mood", 0) + val
+        elif t == "pt":
+            val = parse_value(v)
+            if val:
+                effects["skill_pts"] = effects.get("skill_pts", 0) + val
+        elif t == "bo":
+            val = parse_value(v)
+            if val:
+                effects["friendship"] = effects.get("friendship", 0) + val
+        elif t == "me":
+            val = parse_value(v)
+            if val:
+                effects["max_energy"] = effects.get("max_energy", 0) + val
+        elif t == "se":
+            name = se_map.get(d, "")
+            if name:
+                conditions.append(name)
+        elif t == "sk":
+            level = parse_value(v) if v else 1
+            name = skill_map.get(d, "")
+            if name:
+                skills.append({"name": name, "level": max(1, level)})
+    return effects, skills, conditions
+
+
+def has_diverge(results):
+    return any(r.get("t") == "di" for r in results)
+
+
+def split_outcomes(results):
+    branches = []
+    current = []
+    for r in results:
+        if r.get("t") == "di":
+            if current:
+                branches.append(current)
+            current = []
+        else:
+            current.append(r)
+    if current:
+        branches.append(current)
+    return branches
+
+
+def build_choice_data(results, skill_map, se_map):
+    if has_diverge(results):
+        branches = split_outcomes(results)
+        if len(branches) >= 2:
+            s_eff, s_sk, s_cond = convert_results(branches[0], skill_map, se_map)
+            f_eff, f_sk, f_cond = convert_results(branches[1], skill_map, se_map)
+            return {
+                "description": "",
+                "outcomes": {
+                    "success": {
+                        "effects": s_eff,
+                        "skills": s_sk,
+                        "conditions": s_cond,
+                    },
+                    "fail": {
+                        "effects": f_eff,
+                        "skills": f_sk,
+                        "conditions": f_cond,
+                    },
+                },
+            }
+        elif branches:
+            eff, sk, cond = convert_results(branches[0], skill_map, se_map)
+            return {
+                "description": "",
+                "effects": eff,
+                "skills": sk,
+                "conditions": cond,
+            }
+    eff, sk, cond = convert_results(results, skill_map, se_map)
+    return {"description": "", "effects": eff, "skills": sk, "conditions": cond}
+
+
+def process_raw_event(raw, te_names, evrew, skill_map, se_map):
+    if not isinstance(raw, list) or len(raw) < 2:
+        return None
+
+    name = get_event_name(te_names, raw[0])
+    if not name:
+        return None
+
+    choices_raw = raw[1]
+    if choices_raw == "no" or not isinstance(choices_raw, list):
+        return None
+
+    choices = {}
+    for i, ch in enumerate(choices_raw):
+        if not isinstance(ch, list) or len(ch) < 2:
+            continue
+        reward_indices = ch[1]
+        results = decode_rewards(reward_indices, evrew)
+        choices[str(i + 1)] = build_choice_data(results, skill_map, se_map)
+
+    if len(choices) < 1:
+        return None
+
+    return {"name": name, "choices": choices}
+
+
+def process_char_events(data):
+    te_names = data["te_names"]
+    evrew = data["evrew"]
+    skill_map = build_skill_map(data["skills"])
+    se_map = build_status_effect_map(data["status_effects"])
+    char_map = build_char_map(data["characters"])
+    global_chars = build_global_char_ids(data["characters"])
+
+    character_events = {}
+
+    for entry in data["events_char"]:
+        char_short_id = entry[0]
+        if char_short_id not in global_chars:
+            continue
+        char_name = char_map.get(char_short_id, f"Character {char_short_id}")
+
+        events_raw = entry[2] if len(entry) > 2 else []
+        outings_raw = entry[3] if len(entry) > 3 else []
+
+        char_events = {}
+        for raw in events_raw:
+            ev = process_raw_event(raw, te_names, evrew, skill_map, se_map)
+            if ev:
+                char_events[ev["name"]] = {"choices": ev["choices"]}
+
+        for raw in outings_raw:
+            ev = process_raw_event(raw, te_names, evrew, skill_map, se_map)
+            if ev:
+                char_events[ev["name"]] = {"choices": ev["choices"]}
+
+        if char_events:
+            if char_name in character_events:
+                character_events[char_name].update(char_events)
+            else:
+                character_events[char_name] = char_events
+
+    return character_events
+
+
+def build_global_card_ids(char_cards):
+    return set(
+        c["card_id"]
+        for c in char_cards
+        if isinstance(c, dict) and c.get("release_en")
+    )
+
+
+def build_card_to_char_map(char_cards, char_map):
+    result = {}
+    for c in char_cards:
+        if not isinstance(c, dict):
+            continue
+        card_id = c.get("card_id")
+        char_id = c.get("char_id")
+        if card_id and char_id:
+            result[card_id] = char_map.get(char_id, f"Character {char_id}")
+    return result
+
+
+def process_char_card_events(data):
+    te_names = data["te_names"]
+    evrew = data["evrew"]
+    skill_map = build_skill_map(data["skills"])
+    se_map = build_status_effect_map(data["status_effects"])
+    char_map = build_char_map(data["characters"])
+    global_cards = build_global_card_ids(data["char_cards"])
+    card_to_char = build_card_to_char_map(data["char_cards"], char_map)
+
+    character_events = {}
+
+    for entry in data["events_char_card"]:
+        card_id = entry[0]
+        if card_id not in global_cards:
+            continue
+        char_name = card_to_char.get(card_id, f"Card {card_id}")
+        events_raw = entry[1] if len(entry) > 1 and isinstance(entry[1], list) else []
+
+        card_events = {}
+        for raw in events_raw:
+            ev = process_raw_event(raw, te_names, evrew, skill_map, se_map)
+            if ev:
+                card_events[ev["name"]] = {"choices": ev["choices"]}
+
+        if card_events:
+            if char_name in character_events:
+                character_events[char_name].update(card_events)
+            else:
+                character_events[char_name] = card_events
+
+    return character_events
+
+
+def format_support_name(info, support_id):
+    name = info.get("name", "")
+    if not name:
+        return f"Support {support_id}"
+    return name
+
+
+SUPPORT_TYPE_MAP = {
+    "speed": "Speed",
+    "stamina": "Stamina",
+    "power": "Power",
+    "guts": "Guts",
+    "intelligence": "Wit",
+    "friend": "Pal",
 }
 
-EXISTING_CARDS = [
-    "Kitasan Black (Fire at My Heels)",
-    "Super Creek (Piece of Mind)",
-    "Mejiro McQueen (Your Team Ace)",
-    "Silence Suzuka (Beyond This Shining Moment)",
-    "Tokai Teio (Dream Big!)",
-    "Rice Shower (Happiness Just around the Bend)",
-    "Sakura Bakushin O (Eat Fast! Yum Fast!)",
-    "Daiwa Scarlet (Mini Vacation)",
-    "Vodka (Wild Rider)",
-    "Gold Ship (Breakaway Battleship)",
-    "Narita Brian (Two Pieces)",
-]
+
+def rarity_label(info, fallback):
+    rarity_num = info.get("rarity", 0)
+    rarity_map = {1: "R", 2: "SR", 3: "SSR"}
+    rar = rarity_map.get(rarity_num, fallback)
+    stype = SUPPORT_TYPE_MAP.get(info.get("type", ""), "")
+    if stype:
+        return f"{rar} {stype}"
+    return rar
+
+
+def build_shared_events_by_char(data):
+    te_names = data["te_names"]
+    evrew = data["evrew"]
+    skill_map = build_skill_map(data["skills"])
+    se_map = build_status_effect_map(data["status_effects"])
+
+    shared_by_char = {}
+    for entry in data["events_shared"]:
+        char_id = entry[0]
+        events_raw = entry[1]
+        char_evs = {}
+        for raw in events_raw:
+            ev = process_raw_event(raw, te_names, evrew, skill_map, se_map)
+            if ev:
+                char_evs[ev["name"]] = {"choices": ev["choices"]}
+        if char_evs:
+            shared_by_char[char_id] = char_evs
+    return shared_by_char
+
+
+def process_support_events(data, source_key, fallback_rarity, shared_by_char):
+    te_names = data["te_names"]
+    evrew = data["evrew"]
+    skill_map = build_skill_map(data["skills"])
+    se_map = build_status_effect_map(data["status_effects"])
+    support_map = build_support_map(data["supports"])
+    global_supports = build_global_support_ids(data["supports"])
+
+    sup_to_char = {}
+    for s in data["supports"]:
+        if isinstance(s, dict) and "support_id" in s:
+            sup_to_char[s["support_id"]] = s.get("char_id")
+
+    support_events = {}
+    used_names = set()
+
+    for entry in data[source_key]:
+        support_id = entry[0]
+        if support_id not in global_supports:
+            continue
+        events_raw = entry[1]
+
+        info = support_map.get(support_id, {})
+        base_name = format_support_name(info, support_id)
+        rar = rarity_label(info, fallback_rarity)
+        char_id = sup_to_char.get(support_id)
+
+        card_events = {}
+        if char_id and char_id in shared_by_char:
+            card_events.update(shared_by_char[char_id])
+        for raw in events_raw:
+            ev = process_raw_event(raw, te_names, evrew, skill_map, se_map)
+            if ev:
+                card_events[ev["name"]] = {"choices": ev["choices"]}
+
+        if card_events:
+            display_name = f"{base_name} ({rar})"
+            if display_name in used_names:
+                display_name = f"{base_name} ({rar} #{support_id})"
+            used_names.add(display_name)
+
+            support_events[display_name] = {
+                "type": rar,
+                "support_id": support_id,
+                "events": card_events,
+            }
+
+    return support_events
+
+
+
+
+
+def _norm(name):
+    return name.lower().replace(".", "").replace(" ", "").replace("\u2606", "")
+
+
+_DEDUP_RACE_RE = re.compile(
+    r"^(Victory!|Solid Showing|Defeat)\s*\((?:G[123]|OP and Pre-OP)\)\s*\(.*?\)$"
+)
+_DEDUP_CHAR_RE = re.compile(
+    r"^(New Year'?s? Shrine Visit|New Year'?s? Resolutions|Extra Training"
+    r"|Get Well Soon!|Don't Over Do it!)\s*\(.*?\)$"
+)
+
+_COMMON_EVENT_NAMES = {
+    "Victory!", "Solid Showing", "Defeat",
+    "New Year's Shrine Visit", "New Year's Resolutions",
+    "Extra Training", "Get Well Soon!", "Don't Over Do it!",
+}
+
+
+def _extract_common_events(char_events):
+    removed = 0
+    common = {}
+    for char_name in list(char_events.keys()):
+        events = char_events[char_name]
+        groups = {}
+        for ename in list(events.keys()):
+            m = _DEDUP_RACE_RE.match(ename) or _DEDUP_CHAR_RE.match(ename)
+            if m:
+                base = m.group(1)
+                groups.setdefault(base, []).append(ename)
+        for base, dupes in groups.items():
+            if base not in common:
+                canonical = events[dupes[0]]
+                if base == "Extra Training":
+                    c1 = canonical.get("choices", {}).get("1", {})
+                    if "effects" in c1 and "speed" not in c1["effects"]:
+                        c1["effects"]["speed"] = 5
+                common[base] = canonical
+            for d in dupes:
+                del events[d]
+                removed += 1
+        for base in list(_COMMON_EVENT_NAMES):
+            if base in events:
+                if base not in common:
+                    canonical = events[base]
+                    if base == "Extra Training":
+                        c1 = canonical.get("choices", {}).get("1", {})
+                        if "effects" in c1 and "speed" not in c1["effects"]:
+                            c1["effects"]["speed"] = 5
+                    common[base] = canonical
+                del events[base]
+                removed += 1
+    return common, removed
+
+
+def merge_into_database(
+    char_events, support_events, new_common=None,
+    db_path="config/event_database.json",
+):
+    if os.path.exists(db_path):
+        with open(db_path, "r", encoding="utf-8") as f:
+            db = json.load(f)
+    else:
+        db = {}
+
+    existing_common = db.get("common_events", {})
+    if new_common:
+        for ev_name, ev_data in new_common.items():
+            if ev_name not in existing_common:
+                existing_common[ev_name] = ev_data
+    db["common_events"] = existing_common
+
+    existing_chars = db.get("character_events", {})
+    norm_to_existing = {_norm(k): k for k in existing_chars}
+    added_char = 0
+    new_chars = 0
+    for char_name, events in char_events.items():
+        n = _norm(char_name)
+        actual_key = norm_to_existing.get(n, char_name)
+        if actual_key not in existing_chars:
+            existing_chars[actual_key] = events
+            norm_to_existing[n] = actual_key
+            added_char += len(events)
+            new_chars += 1
+        else:
+            for ev_name, ev_data in events.items():
+                if ev_name not in existing_chars[actual_key]:
+                    existing_chars[actual_key][ev_name] = ev_data
+                    added_char += 1
+    db["character_events"] = existing_chars
+
+    existing_sups = db.get("support_card_events", {})
+    norm_to_sup = {_norm(k): k for k in existing_sups}
+
+    added_sup = 0
+    new_sups = 0
+    updated_sups = 0
+
+    for card_name, card_data in support_events.items():
+        cdn_events = card_data.get("events", {})
+        n = _norm(card_name)
+        actual_key = norm_to_sup.get(n)
+
+        if actual_key:
+            existing = existing_sups[actual_key]
+            if existing.get("type", "Unknown") == "Unknown" and card_data.get("type"):
+                existing["type"] = card_data["type"]
+            for ev_name, ev_data in cdn_events.items():
+                if ev_name not in existing.get("events", {}):
+                    existing.setdefault("events", {})[ev_name] = ev_data
+                    added_sup += 1
+            updated_sups += 1
+        else:
+            card_data.pop("support_id", None)
+            existing_sups[card_name] = card_data
+            norm_to_sup[n] = card_name
+            new_sups += 1
+            added_sup += len(cdn_events)
+
+    db["support_card_events"] = existing_sups
+
+    db.pop("generic_patterns", None)
+    db.pop("default_strategy", None)
+
+    with open(db_path, "w", encoding="utf-8") as f:
+        json.dump(db, f, indent=4, ensure_ascii=False)
+
+    total_char = sum(len(v) for v in db["character_events"].values())
+    total_sup = sum(len(v.get("events", {})) for v in db["support_card_events"].values())
+    total_common = len(db.get("common_events", {}))
+    print(f"\nMerge complete:")
+    print(f"  Characters: {len(db['character_events'])} ({new_chars} new, {added_char} events added)")
+    print(f"  Supports: {len(db['support_card_events'])} ({new_sups} new, {updated_sups} updated, {added_sup} events added)")
+    print(f"  Common: {total_common} (preserved)")
+    print(f"  Total events: {total_char} char + {total_sup} support + {total_common} common")
+
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
-
-    if mode in ("all", "support"):
-        scrape_support_events()
-    if mode in ("all", "trainee"):
-        scrape_trainee_events()
-
-def scrape_support_events():
     print("=" * 60)
-    print("Umamusume Support Card Event Scraper")
+    print("Gametora CDN Event Scraper")
     print("=" * 60)
 
-    print("\n[1/4] Fetching support card events list page...")
-    events_page = fetch_page("https://game8.co/games/Umamusume-Pretty-Derby/archives/539720")
-    if not events_page:
-        print("ERROR: Could not fetch events list page")
-        return
+    print("\nFetching data from CDN...")
+    data = fetch_cdn_data()
+    global_chars = build_global_char_ids(data["characters"])
+    global_sups = build_global_support_ids(data["supports"])
+    global_cards = build_global_card_ids(data["char_cards"])
+    print(f"  Characters: {len(data['events_char'])} ({len(global_chars)} global)")
+    print(f"  Character cards: {len(data['events_char_card'])} ({len(global_cards)} global)")
+    ssr_en = sum(1 for e in data['events_ssr'] if e[0] in global_sups)
+    sr_en = sum(1 for e in data['events_sr'] if e[0] in global_sups)
+    print(f"  SSR supports: {len(data['events_ssr'])} ({ssr_en} global)")
+    print(f"  SR supports: {len(data['events_sr'])} ({sr_en} global)")
+    print(f"  Shared event groups: {len(data['events_shared'])}")
+    print(f"  Skills: {len(data['skills'])}")
+    print(f"  Event names: {len(data['te_names'])}")
 
-    print("\n[2/4] Extracting event links...")
-    card_events = extract_card_event_mapping(events_page)
-    print(f"  Found {len(card_events)} cards with events")
+    print("\nProcessing character events...")
+    char_events = process_char_events(data)
+    total_c = sum(len(v) for v in char_events.values())
+    print(f"  {len(char_events)} characters -> {total_c} events (shared per character)")
 
-    progress_file = "config/scraped_support_events.json"
-    try:
-        with open(progress_file, "r", encoding="utf-8") as f:
-            all_card_data = json.load(f).get("support_card_events", {})
-        print(f"  Loaded {len(all_card_data)} cards from previous run")
-    except:
-        all_card_data = {}
+    print("\nProcessing character card events (costume-specific)...")
+    card_events = process_char_card_events(data)
+    total_cc = sum(len(v) for v in card_events.values())
+    print(f"  {len(card_events)} characters -> {total_cc} card-specific events")
 
-    print("\n[3/4] Fetching individual event pages...")
-    total_events = 0
-    fetched = 0
-    skipped = 0
-
-    for card_name, events in sorted(card_events.items()):
-        if card_name in all_card_data and len(all_card_data[card_name].get("events", {})) == len(events):
-            skipped += len(events)
-            continue
-
-        card_type = "Unknown"
-        for ssr_name, ssr_type in SSR_CARDS.items():
-            cn = card_name.replace('\u2019', "'").replace('\u2606', '').strip()
-            if cn == ssr_name or ssr_name == cn or \
-               cn.split('(')[0].strip() == ssr_name.split('(')[0].strip():
-                card_type = ssr_type
-                break
-
-        card_data = {
-            "type": card_type,
-            "events": {}
-        }
-
-        for event_info in events:
-            event_name = event_info['event_name']
-            archive_id = event_info['archive_id']
-            total_events += 1
-
-            url = f"https://game8.co/games/Umamusume-Pretty-Derby/archives/{archive_id}"
-            print(f"  [{fetched+1}] {card_name} -> {event_name} ({archive_id})...")
-
-            html = fetch_page(url)
-            fetched += 1
-
-            if html:
-                choices = extract_event_choices(html, event_name)
-                all_choices = build_choices_data(choices)
-
-                card_data["events"][event_name] = {
-                    "choices": all_choices
-                }
-
-                if choices and choices[0]['choice_num'] != 0:
-                    print(f"    -> {len(all_choices)} choices")
-                elif choices:
-                    print(f"    -> Auto-event")
-                else:
-                    print(f"    -> No choices parsed")
-                    card_data["events"][event_name] = {"choices": {}}
-            else:
-                print(f"    -> FAILED to fetch")
-                card_data["events"][event_name] = {"choices": {}}
-
-            time.sleep(0.3)
-
-        all_card_data[card_name] = card_data
-
-        with open(progress_file, "w", encoding="utf-8") as f:
-            json.dump({"support_card_events": all_card_data}, f, indent=4, ensure_ascii=False)
-
-    print(f"\n[4/4] Done! ({fetched} fetched, {skipped} skipped)")
-    print(f"Total cards: {len(all_card_data)}")
-
-    with open(progress_file, "w", encoding="utf-8") as f:
-        json.dump({"support_card_events": all_card_data}, f, indent=4, ensure_ascii=False)
-
-    print(f"Saved to {progress_file}")
-
-def scrape_trainee_events():
-    print("=" * 60)
-    print("Umamusume Trainee (Character) Event Scraper")
-    print("=" * 60)
-
-    print("\n[1/5] Fetching master events list page (539612)...")
-    events_page = fetch_page("https://game8.co/games/Umamusume-Pretty-Derby/archives/539612")
-    if not events_page:
-        print("ERROR: Could not fetch events list page")
-        return
-
-    print("\n[2/5] Extracting trainee event links...")
-    char_events = extract_trainee_event_mapping(events_page)
-    total_count = sum(len(evts) for evts in char_events.values())
-    print(f"  Found {len(char_events)} characters with {total_count} trainee events")
-
-    shared_events = {}
-    unique_events = {}
-    for char_name, events in char_events.items():
-        for evt in events:
-            base = re.sub(r'\s*\([^)]*\)\s*$', '', evt['event_name'])
-            if base != evt['event_name']:
-                if base not in shared_events:
-                    shared_events[base] = []
-                shared_events[base].append({
-                    'char': char_name,
-                    'full_name': evt['event_name'],
-                    'archive_id': evt['archive_id'],
-                })
-            else:
-                if char_name not in unique_events:
-                    unique_events[char_name] = []
-                unique_events[char_name].append(evt)
-
-    shared_multi = {b: entries for b, entries in shared_events.items() if len(entries) > 1}
-    shared_single = {b: entries[0] for b, entries in shared_events.items() if len(entries) == 1}
-
-    shared_pages = len(shared_multi)
-    unique_pages = sum(len(evts) for evts in unique_events.values())
-    single_pages = len(shared_single)
-    total_pages = shared_pages + unique_pages + single_pages
-    saved = total_count - total_pages
-
-    print(f"  Shared events (dedup): {len(shared_multi)} base events across {sum(len(e) for e in shared_multi.values())} references")
-    print(f"  Pages to fetch: {total_pages} (saved {saved} via dedup)")
-
-    progress_file = "config/scraped_trainee_events.json"
-    try:
-        with open(progress_file, "r", encoding="utf-8") as f:
-            all_char_data = json.load(f).get("character_events", {})
-        print(f"  Loaded {len(all_char_data)} characters from previous run")
-    except:
-        all_char_data = {}
-
-    print("\n[3/5] Fetching shared events (one per group)...")
-    fetched = 0
-    skipped = 0
-    shared_cache = {}
-
-    for base_name, entries in sorted(shared_multi.items()):
-        first = entries[0]
-
-        already_cached = False
-        for entry in entries:
-            existing = all_char_data.get(entry['char'], {})
-            if entry['full_name'] in existing and existing[entry['full_name']].get('choices'):
-                shared_cache[base_name] = existing[entry['full_name']]
-                already_cached = True
-                break
-
-        if already_cached:
-            skipped += 1
-            continue
-
-        url = f"https://game8.co/games/Umamusume-Pretty-Derby/archives/{first['archive_id']}"
-        print(f"  [{fetched+1}] {base_name} ({first['archive_id']})...")
-
-        html = fetch_page(url)
-        fetched += 1
-
-        if html:
-            choices = extract_event_choices(html, first['full_name'])
-            all_choices = build_choices_data(choices)
-            shared_cache[base_name] = {"choices": all_choices}
-
-            if choices and choices[0]['choice_num'] != 0:
-                print(f"    -> {len(all_choices)} choices")
-            elif choices:
-                print(f"    -> Auto-event")
-            else:
-                print(f"    -> No choices parsed")
-                shared_cache[base_name] = {"choices": {}}
+    for char_name, events in card_events.items():
+        if char_name in char_events:
+            char_events[char_name].update(events)
         else:
-            print(f"    -> FAILED to fetch")
-            shared_cache[base_name] = {"choices": {}}
+            char_events[char_name] = events
+    total_c = sum(len(v) for v in char_events.values())
+    print(f"  Combined: {len(char_events)} characters -> {total_c} events total")
 
-        time.sleep(0.3)
+    print("\nProcessing shared events (support card base events)...")
+    shared_by_char = build_shared_events_by_char(data)
+    total_shared = sum(len(v) for v in shared_by_char.values())
+    print(f"  {len(shared_by_char)} characters -> {total_shared} base events")
 
-    print(f"\n  Shared: {fetched} fetched, {skipped} cached")
+    print("\nProcessing SSR support events...")
+    ssr_events = process_support_events(data, "events_ssr", "SSR", shared_by_char)
+    total_ssr = sum(len(v.get("events", {})) for v in ssr_events.values())
+    print(f"  {len(ssr_events)} SSR cards -> {total_ssr} events (incl. base)")
 
-    print("\n[4/5] Applying shared events to all characters...")
-    for base_name, entries in shared_multi.items():
-        if base_name not in shared_cache:
-            continue
-        event_data = shared_cache[base_name]
-        for entry in entries:
-            char_name = entry['char']
-            if char_name not in all_char_data:
-                all_char_data[char_name] = {}
-            all_char_data[char_name][entry['full_name']] = event_data
+    print("\nProcessing SR support events...")
+    sr_events = process_support_events(data, "events_sr", "SR", shared_by_char)
+    total_sr = sum(len(v.get("events", {})) for v in sr_events.values())
+    print(f"  {len(sr_events)} SR cards -> {total_sr} events (incl. base)")
 
-    for base_name, entry in shared_single.items():
-        char_name = entry['char']
-        existing = all_char_data.get(char_name, {})
-        if entry['full_name'] in existing and existing[entry['full_name']].get('choices'):
-            skipped += 1
-            continue
+    all_support = {**ssr_events, **sr_events}
 
-        url = f"https://game8.co/games/Umamusume-Pretty-Derby/archives/{entry['archive_id']}"
-        print(f"  [{fetched+1}] {char_name} -> {entry['full_name']} ({entry['archive_id']})...")
+    new_common, deduped = _extract_common_events(char_events)
+    if deduped:
+        print(f"\nExtracted {len(new_common)} common events, removed {deduped} duplicates from characters")
+    total_c = sum(len(v) for v in char_events.values())
+    print(f"  After dedup: {len(char_events)} characters -> {total_c} events")
 
-        html = fetch_page(url)
-        fetched += 1
+    print("\nMerging into event_database.json...")
+    merge_into_database(char_events, all_support, new_common)
 
-        if html:
-            choices = extract_event_choices(html, entry['full_name'])
-            all_choices = build_choices_data(choices)
-            if char_name not in all_char_data:
-                all_char_data[char_name] = {}
-            all_char_data[char_name][entry['full_name']] = {"choices": all_choices}
-            if choices and choices[0]['choice_num'] != 0:
-                print(f"    -> {len(all_choices)} choices")
-            elif choices:
-                print(f"    -> Auto-event")
-            else:
-                print(f"    -> No choices parsed")
-                all_char_data[char_name][entry['full_name']] = {"choices": {}}
-        else:
-            print(f"    -> FAILED to fetch")
-            if char_name not in all_char_data:
-                all_char_data[char_name] = {}
-            all_char_data[char_name][entry['full_name']] = {"choices": {}}
+    print("Done!")
 
-        time.sleep(0.3)
-
-    with open(progress_file, "w", encoding="utf-8") as f:
-        json.dump({"character_events": all_char_data}, f, indent=4, ensure_ascii=False)
-
-    print(f"\n[5/5] Fetching unique character events...")
-    for char_name, events in sorted(unique_events.items()):
-        existing = all_char_data.get(char_name, {})
-
-        char_data = dict(existing)
-
-        for event_info in events:
-            event_name = event_info['event_name']
-            archive_id = event_info['archive_id']
-
-            if event_name in char_data and char_data[event_name].get('choices'):
-                skipped += 1
-                continue
-
-            url = f"https://game8.co/games/Umamusume-Pretty-Derby/archives/{archive_id}"
-            print(f"  [{fetched+1}] {char_name} -> {event_name} ({archive_id})...")
-
-            html = fetch_page(url)
-            fetched += 1
-
-            if html:
-                choices = extract_event_choices(html, event_name)
-                all_choices = build_choices_data(choices)
-
-                char_data[event_name] = {"choices": all_choices}
-
-                if choices and choices[0]['choice_num'] != 0:
-                    print(f"    -> {len(all_choices)} choices")
-                elif choices:
-                    print(f"    -> Auto-event")
-                else:
-                    print(f"    -> No choices parsed")
-                    char_data[event_name] = {"choices": {}}
-            else:
-                print(f"    -> FAILED to fetch")
-                char_data[event_name] = {"choices": {}}
-
-            time.sleep(0.3)
-
-        all_char_data[char_name] = char_data
-
-        with open(progress_file, "w", encoding="utf-8") as f:
-            json.dump({"character_events": all_char_data}, f, indent=4, ensure_ascii=False)
-
-    print(f"\nDone! ({fetched} fetched, {skipped} skipped)")
-    print(f"Total characters: {len(all_char_data)}")
-
-    with open(progress_file, "w", encoding="utf-8") as f:
-        json.dump({"character_events": all_char_data}, f, indent=4, ensure_ascii=False)
-
-    print(f"Saved to {progress_file}")
 
 if __name__ == "__main__":
     main()

@@ -16,13 +16,15 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. Captures th
 | Category | Details |
 |----------|---------|
 | **Interaction** | Window-only clicks via `PostMessage` — mouse and keyboard stay free |
+| **Window Selection** | GUI tab to pick any visible window — supports all emulators and players |
 | **Interface** | GUI launcher with stat priorities, thresholds, and scenario selection |
 | **Decision engine** | Priority tree: Race › Infirmary › Rest › Recreation › Training |
 | **Scenarios** | Unity Cup (spirit bursts, unity matches) + URA |
 | **Events** | 500+ events from game8.co with optimal choice selection |
 | **Vision** | Template matching (OpenCV) + OCR (EasyOCR) for stats, energy, mood |
+| **Resolution** | Auto-scales templates to match any game resolution |
 | **Skills** | Skill wishlist — auto-scrolls skill screen, selects matching skills |
-| **Safety** | Random offsets, variable delays, F12 emergency stop |
+| **Safety** | Random offsets, configurable delays, F12 emergency stop |
 | **Debug** | Live overlay (`visual_debug.py`) with D-key diagnostics |
 
 ---
@@ -34,7 +36,7 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. Captures th
 | Requirement | Notes |
 |-------------|-------|
 | Python 3.8+ | [python.org](https://www.python.org/downloads/) |
-| Umamusume Pretty Derby | Running in a window (DMM or emulator) |
+| Umamusume Pretty Derby | Running in any emulator or player |
 | EasyOCR models | Downloaded automatically on first run (~500 MB) |
 
 ### Installation
@@ -128,9 +130,11 @@ Edit `config/config.json` or use the GUI:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `training_targets.speed` | 1200 | Target Speed stat |
+| `window_title` | `""` | Selected game window (empty = auto-detect) |
+| `training_targets.speed` | 600 | Target Speed stat |
 | `stat_priority` | `["speed", "power", ...]` | Training order |
 | `thresholds.energy_low` | 40 | Rest threshold (%) |
+| `thresholds.energy_training` | 50 | Allow training above (%) |
 | `safety_settings.emergency_stop_key` | `F12` | Emergency stop hotkey |
 | `scenario` | `unity_cup` | `unity_cup` or `ura` |
 
@@ -145,9 +149,10 @@ The bot evaluates conditions in strict priority order each turn:
 | **0** | Mandatory race day (`btn_race_start` visible) | → Race |
 | **1** | Scheduled / target race detected | → Race |
 | **2** | Injury present | → Infirmary |
-| **3** | Energy < 30% | → Rest |
-| **4** | Mood awful, or not Great in Classic/Senior | → Recreation |
-| **5** | Default | → Train best stat |
+| **3** | Energy < `energy_low` (configurable, default 40%) | → Rest |
+| **4** | Energy < `energy_training` (default 50%) | → Check wit only, rest if not worth it |
+| **5** | Mood awful, or not Great in Classic/Senior | → Recreation |
+| **6** | Default | → Train best stat |
 
 ---
 
@@ -180,9 +185,9 @@ Configure the wishlist in `config/config.json` under `skill_wishlist`.
 
 | Issue | Solution |
 |-------|----------|
-| Game window not found | Ensure game is visible (not minimized). Check window title matches known keywords |
+| Game window not found | Use the **Window** tab in the GUI to select the game window manually |
 | Template matching fails | Re-capture templates at current resolution. Use `visual_debug.py` to diagnose |
-| OCR reads wrong values | Use 1920×1080. Verify EasyOCR is installed: `pip install easyocr` |
+| OCR reads wrong values | Verify EasyOCR is installed: `pip install easyocr`. Templates auto-scale to any resolution |
 | Clicks don't register | Try a different emulator (BlueStacks / LDPlayer / MuMu) |
 | Screen detected as UNKNOWN | Run `visual_debug.py`, press **D** on the relevant screen |
 

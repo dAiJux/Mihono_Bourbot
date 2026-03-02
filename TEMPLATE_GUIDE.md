@@ -147,9 +147,9 @@ All templates are saved to `templates/` at the project root.
 
 Exclude backgrounds, UI chrome, and especially character illustrations. The matching algorithm is sensitive to pixels that change between frames. For buttons where a character overlaps the top half, capture only the bottom portion containing the label.
 
-### Resolution must match
+### Resolution auto-scales — but consistency helps
 
-Templates captured at 1920×1080 will not work reliably at 1280×720. Capture at the resolution you'll run the bot at and do not resize the game window afterward.
+The bot reads a `reference_width` from `templates/meta.json` and rescales all templates at runtime to match the actual game window width. You can capture at any resolution and the bot will adapt. That said, capturing at a resolution close to your usual game size avoids large scale factors that can reduce matching accuracy.
 
 ### Avoid animated areas
 
@@ -162,8 +162,8 @@ Use exact lowercase names with underscores as listed above. The bot references t
 ### When to recapture
 
 - After a game UI update
-- After changing resolution or emulator
-- When a previously working template suddenly fails
+- When a previously working template fails at a very different resolution
+- When matching confidence drops below threshold
 
 ---
 

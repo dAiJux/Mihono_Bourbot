@@ -68,9 +68,10 @@ class TrainingAnalysisMixin:
             return []
 
         gx, gy, gw, gh = self.get_game_rect(screenshot)
-        x1 = max(0, gx + int(gw * region["x1"]))
+        xf = self._aspect_x_factor(gw, gh)
+        x1 = max(0, gx + int(gw * region["x1"] * xf))
         y1 = max(0, gy + int(gh * region["y1"]))
-        x2 = min(screenshot.shape[1], gx + int(gw * region["x2"]))
+        x2 = min(screenshot.shape[1], gx + int(gw * region["x2"] * xf))
         y2 = min(screenshot.shape[0], gy + int(gh * region["y2"]))
         crop = screenshot[y1:y2, x1:x2]
         if crop.size == 0:
@@ -158,9 +159,10 @@ class TrainingAnalysisMixin:
             return {"total": 0, "bars": []}
 
         gx, gy, gw, gh = self.get_game_rect(screenshot)
-        x1 = max(0, gx + int(gw * region["x1"]))
+        xf = self._aspect_x_factor(gw, gh)
+        x1 = max(0, gx + int(gw * region["x1"] * xf))
         y1 = max(0, gy + int(gh * region["y1"]))
-        x2 = min(screenshot.shape[1], gx + int(gw * region["x2"]))
+        x2 = min(screenshot.shape[1], gx + int(gw * region["x2"] * xf))
         y2 = min(screenshot.shape[0], gy + int(gh * region["y2"]))
         crop = screenshot[y1:y2, x1:x2]
         if crop.size == 0:
@@ -221,15 +223,16 @@ class TrainingAnalysisMixin:
 
     def count_characters_per_training(self, screenshot: np.ndarray) -> Dict[str, int]:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
+        xf = self._aspect_x_factor(gw, gh)
         results = {}
         for stat in ["speed", "stamina", "power", "guts", "wit"]:
             region = self._calibration.get(f"training_{stat}")
             if not region or "x1" not in region:
                 results[stat] = 0
                 continue
-            x1 = gx + int(gw * region["x1"])
+            x1 = gx + int(gw * region["x1"] * xf)
             y1 = gy + int(gh * region["y1"])
-            x2 = gx + int(gw * region["x2"])
+            x2 = gx + int(gw * region["x2"] * xf)
             y2 = gy + int(gh * region["y2"])
             crop = screenshot[y1:y2, x1:x2]
             if crop.size == 0:
@@ -253,9 +256,10 @@ class TrainingAnalysisMixin:
 
     def count_support_icons_near(self, screenshot: np.ndarray, training_pos: Tuple[int, int], radius: int = 100) -> int:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
+        xf = self._aspect_x_factor(gw, gh)
         sr = self._calibration.get("support_region", {})
-        col_left = gx + int(gw * sr.get("x1", 0.82))
-        col_right = gx + int(gw * sr.get("x2", 0.98))
+        col_left = gx + int(gw * sr.get("x1", 0.82) * xf)
+        col_right = gx + int(gw * sr.get("x2", 0.98) * xf)
         col_top = gy + int(gh * sr.get("y1", 0.10))
         col_bottom = gy + int(gh * sr.get("y2", 0.48))
         if col_top >= col_bottom or col_left >= col_right:

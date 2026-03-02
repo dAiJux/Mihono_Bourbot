@@ -120,7 +120,9 @@ class MihonoBourbot:
                 if screen in (
                     GameScreen.MAIN, GameScreen.RACE, GameScreen.TRAINING,
                     GameScreen.EVENT, GameScreen.UNITY, GameScreen.RACE_SELECT,
-                    GameScreen.STRATEGY, GameScreen.INSPIRATION,
+                    GameScreen.INSUFFICIENT_FANS, GameScreen.SCHEDULED_RACE_POPUP,
+                    GameScreen.STRATEGY,
+                    GameScreen.INSPIRATION,
                 ):
                     self.logger.warning(
                         f"Turn {self.turn_count} but still on {screen.value} — "
@@ -186,7 +188,10 @@ class MihonoBourbot:
                     )
                     self.turn_count -= 1
 
-                time.sleep(random.uniform(1.0, 3.0))
+                time.sleep(random.uniform(
+                    self.config["automation_settings"]["action_delay_min"],
+                    self.config["automation_settings"]["action_delay_max"],
+                ))
 
             except Exception as e:
                 self.logger.error(f"Error during turn {self.turn_count}: {e}")

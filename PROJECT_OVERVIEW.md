@@ -78,9 +78,10 @@ Every turn, the bot evaluates conditions in strict order:
 | **0** | `btn_race_start` visible | → Race (mandatory) | `detect_race_day()` |
 | **1** | Target / scheduled race | → Race | `detect_target_race()` |
 | **2** | Injury present | → Infirmary | `detect_injury()` |
-| **3** | Energy < 30% | → Rest | `read_energy_percentage()` |
-| **4** | Mood awful / not Great (Classic+) | → Recreation | `detect_mood()` |
-| **5** | Default | → Train best stat | `_determine_training_stat()` |
+| **3** | Energy < `energy_low` (config, default 40%) | → Rest | `read_energy_percentage()` |
+| **4** | Energy < `energy_training` (default 50%) | → Check wit only, rest if not worth it | `score_single_training()` |
+| **5** | Mood awful / not Great (Classic+) | → Recreation | `detect_mood()` |
+| **6** | Default | → Train best stat | `_determine_training_stat()` |
 
 **Screen detection order in `detect_screen()`:**
 
@@ -188,6 +189,10 @@ win32gui.PostMessage(hwnd, WM_LBUTTONUP, 0, lp_end)
 ---
 
 ## Key Design Decisions
+
+**Manual window selection** — The GUI provides a **Window** tab listing all visible windows. The user picks the one running the game. The saved title is persisted in `config.json` and checked first on startup. Falls back to keyword-based auto-detect if nothing is saved. This supports any emulator or player.
+
+**Resolution-agnostic** — Templates are captured at a reference width (stored in `templates/meta.json`). At runtime the bot computes a scale factor from the actual game width and resizes all templates accordingly. Fractional coordinates in `calibration.json` adapt to any size. Windowed-mode chrome is automatically excluded via `ClientToScreen`/`GetClientRect`.
 
 **Flat package structure** — All files at root, no subdirectory nesting. Easier to navigate and import without `__init__` boilerplate.
 

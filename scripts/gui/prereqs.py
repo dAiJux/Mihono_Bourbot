@@ -384,6 +384,7 @@ class PrerequisiteDialog(tk.Toplevel):
 
     def __init__(self, parent, issues):
         super().__init__(parent)
+        self.withdraw()
         self.title("Mihono Bourbot \u2014 Prerequisites")
         self.geometry("700x580")
         self.resizable(False, False)
@@ -398,6 +399,7 @@ class PrerequisiteDialog(tk.Toplevel):
         px = parent.winfo_x() + (parent.winfo_width() - 700) // 2
         py = parent.winfo_y() + (parent.winfo_height() - 580) // 2
         self.geometry(f"+{max(0, px)}+{max(0, py)}")
+        self.deiconify()
 
     def _setup_styles(self):
         s = ttk.Style(self)

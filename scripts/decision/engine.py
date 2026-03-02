@@ -21,10 +21,18 @@ class EngineMixin:
     def decide_action(self) -> Tuple[Action, Optional[str]]:
         screenshot = self.vision.take_screenshot()
 
+        banner = self.vision.identify_popup_banner(screenshot)
+        if banner == "insufficient_fans":
+            self.logger.info("Insufficient Fans popup detected — SKIP to let advance_turn handle it")
+            return (Action.SKIP, None)
+        if banner == "scheduled_race":
+            self.logger.info("Scheduled Race popup banner detected — must race NOW")
+            return (Action.RACE, "raceday")
+
         race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
         if race_popup:
-            self.logger.info("Scheduled race popup detected — returning SKIP")
-            return (Action.SKIP, None)
+            self.logger.info("Scheduled race popup detected (btn_race) — must race NOW")
+            return (Action.RACE, "raceday")
 
         screen = self.vision.detect_screen(screenshot)
         if screen not in (GameScreen.MAIN, GameScreen.RACE, GameScreen.UNITY, GameScreen.CAREER_COMPLETE):
@@ -91,15 +99,21 @@ class EngineMixin:
             self.logger.info("PRIORITY 1: Injury detected -> INFIRMARY")
             return (Action.INFIRMARY, None)
 
-        if energy < 30:
-            self.logger.info(f"Energy critically low ({energy:.0f}% < 30%) -> hard REST")
+        if energy < self.energy_low:
+            self.logger.info(f"Energy critically low ({energy:.0f}% < {self.energy_low}%) -> hard REST")
             return (Action.REST, "summer" if is_summer else None)
 
         if mood.lower() in ("awful", "bad"):
+            if is_summer:
+                self.logger.info(f"Mood '{mood}' is bad/awful (summer) -> REST summer")
+                return (Action.REST, "summer")
             self.logger.info(f"Mood '{mood}' is bad/awful -> RECREATION to recover")
             return (Action.RECREATION, None)
 
         if not is_junior and mood.lower() != "great":
+            if is_summer:
+                self.logger.info(f"Mood '{mood}' not Great (summer) -> REST summer")
+                return (Action.REST, "summer")
             self.logger.info(f"Mood '{mood}' not Great in Classic/Senior -> RECREATION")
             return (Action.RECREATION, None)
 
@@ -154,7 +168,7 @@ class EngineMixin:
         self, stat: str, screenshot, is_pre_summer: bool = False,
         current_stats: Optional[Dict[str, int]] = None,
     ) -> Dict:
-        friendship_pts = 9 if is_pre_summer else 5
+        friendship_pts = 9 if is_pre_summer else 10
 
         levels = self.vision.count_support_friendship_leveled(screenshot)
         partial_count = levels["partial"]

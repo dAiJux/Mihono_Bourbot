@@ -97,8 +97,9 @@ class UnityMixin:
         else:
             self.logger.warning("No opponent cards found — clicking center of opponent zone")
             gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+            xf = self.vision._aspect_x_factor(gw, gh)
             uz = self.vision._calibration.get("unity_opponent_zone", {})
-            cx = gx + int(gw * (uz.get("x1", 0.1) + uz.get("x2", 0.9)) / 2)
+            cx = gx + int(gw * (uz.get("x1", 0.1) + uz.get("x2", 0.9)) / 2 * xf)
             cy = gy + int(gh * (uz.get("y1", 0.2) + uz.get("y2", 0.7)) / 2)
             self.click_with_offset(cx, cy)
         self.wait(1.0)
