@@ -176,6 +176,11 @@ def convert_results(results, skill_map, se_map):
             val = parse_value(v)
             if val:
                 effects[TYPE_MAP[t]] = effects.get(TYPE_MAP[t], 0) + val
+        elif t == "5s":
+            val = parse_value(v)
+            if val:
+                for stat in ("speed", "stamina", "power", "guts", "wit"):
+                    effects[stat] = effects.get(stat, 0) + val
         elif t == "en":
             val = parse_value(v)
             if val:
@@ -564,9 +569,8 @@ def merge_into_database(
             new_chars += 1
         else:
             for ev_name, ev_data in events.items():
-                if ev_name not in existing_chars[actual_key]:
-                    existing_chars[actual_key][ev_name] = ev_data
-                    added_char += 1
+                existing_chars[actual_key][ev_name] = ev_data
+                added_char += 1
     db["character_events"] = existing_chars
 
     existing_sups = db.get("support_card_events", {})
@@ -586,9 +590,8 @@ def merge_into_database(
             if existing.get("type", "Unknown") == "Unknown" and card_data.get("type"):
                 existing["type"] = card_data["type"]
             for ev_name, ev_data in cdn_events.items():
-                if ev_name not in existing.get("events", {}):
-                    existing.setdefault("events", {})[ev_name] = ev_data
-                    added_sup += 1
+                existing.setdefault("events", {})[ev_name] = ev_data
+                added_sup += 1
             updated_sups += 1
         else:
             card_data.pop("support_id", None)

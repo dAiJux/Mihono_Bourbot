@@ -6,6 +6,7 @@ class GameScreen(Enum):
     INSPIRATION = "inspiration"
     EVENT = "event"
     RACE = "race"
+    RACE_START = "race_start"
     RACE_SELECT = "race_select"
     INSUFFICIENT_FANS = "insufficient_fans"
     SCHEDULED_RACE_POPUP = "scheduled_race_popup"

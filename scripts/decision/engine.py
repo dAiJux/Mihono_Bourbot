@@ -35,7 +35,7 @@ class EngineMixin:
             return (Action.RACE, "raceday")
 
         screen = self.vision.detect_screen(screenshot)
-        if screen not in (GameScreen.MAIN, GameScreen.RACE, GameScreen.UNITY, GameScreen.CAREER_COMPLETE):
+        if screen not in (GameScreen.MAIN, GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNITY, GameScreen.CAREER_COMPLETE):
             self.logger.info(f"Not on main screen ({screen.value}) — returning SKIP to let advance_turn handle it")
             return (Action.SKIP, None)
 

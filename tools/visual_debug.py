@@ -8,7 +8,7 @@ import time
 import argparse
 import threading
 import tkinter as tk
-from tkinter import ttk, simpledialog, messagebox
+from tkinter import ttk, simpledialog
 from pathlib import Path
 from difflib import SequenceMatcher
 
@@ -181,7 +181,7 @@ class VisualDebugTool:
                     f"({n_manual} manual, {n_auto} auto)"
                 )
 
-        _DATE_SCREENS = (GameScreen.MAIN, GameScreen.RACE_SELECT, GameScreen.RACE)
+        _DATE_SCREENS = (GameScreen.MAIN, GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.RACE_START)
         if self.screen in _DATE_SCREENS:
             game_date = self.vision.read_game_date(ss)
             if game_date:
@@ -222,7 +222,7 @@ class VisualDebugTool:
         if self.screen in (GameScreen.RACE_SELECT, GameScreen.UNKNOWN):
             self._detect_race_select(ss, gx, gy, gw, gh)
 
-        if self.screen in (GameScreen.RACE, GameScreen.UNKNOWN):
+        if self.screen in (GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNKNOWN):
             self._detect_race_prep(ss, gx, gy, gw, gh)
 
         if self.screen in (GameScreen.STRATEGY, GameScreen.UNKNOWN):
@@ -256,7 +256,7 @@ class VisualDebugTool:
 
         if self.screen != GameScreen.SKILL_SELECT:
             btns = GENERIC_BUTTONS
-            if self.screen in (GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.TRY_AGAIN):
+            if self.screen in (GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.RACE_START, GameScreen.TRY_AGAIN):
                 btns = [b for b in GENERIC_BUTTONS if b != "btn_confirm"]
             self._detect_buttons(ss, gx, gw, btns, "gen_btn")
 

@@ -2,6 +2,10 @@ import time
 import json
 import numpy as np
 import cv2
+import ctypes
+import win32api
+import win32con
+import win32gui
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import List
@@ -368,23 +372,32 @@ class SkillsMixin:
         return green_ratio >= 0.10
 
     def _scroll_skill_list(self, from_y: int, to_y: int, x: int):
-        import win32api
-        import win32con
-        import win32gui
         hwnd = self.vision.game_hwnd
         if hwnd is None or not win32gui.IsWindow(hwnd):
             return
+        old_pos = None
+        if self._is_steam():
+            origin = win32gui.ClientToScreen(hwnd, (0, 0))
+            old_pos = win32gui.GetCursorPos()
+            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+            win32gui.SendMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
+            ctypes.windll.user32.SetCursorPos(origin[0] + x, origin[1] + from_y)
+            time.sleep(0.02)
         lp_start = win32api.MAKELONG(x, from_y)
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp_start)
+        win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp_start)
         time.sleep(0.08)
         steps = 25
         for i in range(1, steps + 1):
             interp_y = from_y + int((to_y - from_y) * i / steps)
+            if self._is_steam():
+                ctypes.windll.user32.SetCursorPos(origin[0] + x, origin[1] + interp_y)
             lp_move = win32api.MAKELONG(x, interp_y)
             win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp_move)
             time.sleep(0.04)
         lp_end = win32api.MAKELONG(x, to_y)
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp_end)
+        win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp_end)
+        if old_pos is not None:
+            ctypes.windll.user32.SetCursorPos(old_pos[0], old_pos[1])
         time.sleep(0.3)
 
     def _close_skill_screen(self):

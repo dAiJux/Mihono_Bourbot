@@ -3,11 +3,30 @@ from difflib import SequenceMatcher
 
 FUZZY_THRESHOLD = 0.80
 
+_QUOTE_TABLE = str.maketrans({
+    "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+    "\u00b4": "'", "\u0060": "'", "\u2032": "'", "\u2033": '"',
+})
+
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "to", "in", "on", "at",
+    "by", "for", "is", "it", "my", "no", "so", "up", "if", "do",
+    "be", "as", "but", "not", "you", "all", "can", "had", "her",
+    "was", "one", "our", "out", "are", "has", "his", "how", "its",
+    "may", "new", "now", "old", "see", "way", "who", "did", "get",
+    "let", "say", "she", "too", "use",
+})
+
+
+def _normalize(text: str) -> str:
+    return text.lower().translate(_QUOTE_TABLE)
+
 
 class EventDecisionMixin:
 
     def _fuzzy_match(self, event_name: str, text_lower: str) -> float:
-        name_lower = event_name.lower()
+        name_lower = _normalize(event_name)
+        text_lower = _normalize(text_lower)
         if name_lower in text_lower:
             return 1.0
         if len(name_lower) < 3:
@@ -26,14 +45,14 @@ class EventDecisionMixin:
                 if r > best:
                     best = r
             ratio = max(ratio, best)
-        name_words = [w for w in name_lower.split() if len(w) > 2]
-        if name_words:
+        name_words = [w for w in name_lower.split() if len(w) > 2 and w not in _STOPWORDS]
+        if len(name_words) >= 2:
             text_words = text_lower.split()
             hits = sum(1 for w in name_words if any(
                 SequenceMatcher(None, w, tw).ratio() >= 0.75 for tw in text_words
             ))
             word_ratio = hits / len(name_words)
-            if word_ratio >= 0.6:
+            if word_ratio >= 0.6 and hits >= 2:
                 ratio = max(ratio, 0.5 + word_ratio * 0.4)
         return ratio
 

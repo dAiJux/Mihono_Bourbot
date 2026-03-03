@@ -118,7 +118,8 @@ class MihonoBourbot:
                     break
                 screen = self.vision.detect_screen(screenshot)
                 if screen in (
-                    GameScreen.MAIN, GameScreen.RACE, GameScreen.TRAINING,
+                    GameScreen.MAIN, GameScreen.RACE, GameScreen.RACE_START,
+                    GameScreen.TRAINING,
                     GameScreen.EVENT, GameScreen.UNITY, GameScreen.RACE_SELECT,
                     GameScreen.INSUFFICIENT_FANS, GameScreen.SCHEDULED_RACE_POPUP,
                     GameScreen.STRATEGY,

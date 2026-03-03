@@ -40,10 +40,6 @@ class DetectionMixin:
            self.find_template("confirm_btn", screenshot, 0.72):
             return GameScreen.SKILL_SELECT
 
-        for tpl, thr in [("btn_race_start", 0.70), ("btn_race_start_ura", 0.70)]:
-            if self.find_template(tpl, screenshot, thr):
-                return GameScreen.RACE
-
         banner = self.identify_popup_banner(screenshot)
         if banner == "insufficient_fans":
             return GameScreen.INSUFFICIENT_FANS
@@ -53,6 +49,18 @@ class DetectionMixin:
         if self.find_template("btn_race", screenshot, 0.80):
             if not self.find_template("btn_race_launch", screenshot, 0.75):
                 return GameScreen.RACE_SELECT
+
+        if self.find_template("btn_race_confirm", screenshot, 0.65):
+            return GameScreen.RACE_SELECT
+
+        for tpl, thr in [("btn_race_start", 0.70), ("btn_race_start_ura", 0.70)]:
+            if self.find_template(tpl, screenshot, thr):
+                if self.find_template("race_view_results_on", screenshot, 0.70) or \
+                   self.find_template("race_view_results_off", screenshot, 0.65) or \
+                   self.find_template("btn_change_strategy", screenshot, 0.70) or \
+                   self.find_template("btn_race_launch", screenshot, 0.70):
+                    return GameScreen.RACE
+                return GameScreen.RACE_START
 
         main_found = 0
         for tpl in self.MAIN_SCREEN_BUTTONS:
@@ -87,9 +95,6 @@ class DetectionMixin:
                self.find_template("btn_launch_final_unity", screenshot, 0.75):
                 return GameScreen.UNITY
 
-        if self.find_template("btn_race_confirm", screenshot, 0.65):
-            return GameScreen.RACE_SELECT
-
         if self.find_template("btn_race_launch", screenshot, 0.75):
             return GameScreen.RACE
 
@@ -107,7 +112,7 @@ class DetectionMixin:
         if self.find_template("btn_try_again", screenshot, 0.75):
             return GameScreen.TRY_AGAIN
 
-        if self.is_at_career_complete(screenshot):
+        if self.find_template("complete_career", screenshot, 0.9):
             return GameScreen.CAREER_COMPLETE
 
         if self.detect_event_type(screenshot):
@@ -376,7 +381,7 @@ class DetectionMixin:
                 self.logger.debug(
                     f"Choice-only fallback suppressed — non-event button visible")
                 return None
-            if self.is_at_career_complete(screenshot):
+            if self.find_template("complete_career", screenshot, 0.9):
                 self.logger.debug("Choice-only fallback suppressed — career complete screen")
                 return None
             self.logger.debug(
@@ -469,9 +474,12 @@ class DetectionMixin:
     def is_at_career_complete(self, screenshot: Optional[np.ndarray] = None) -> bool:
         if screenshot is None:
             screenshot = self.take_screenshot()
-        if self.find_template("complete_career", screenshot, 0.9) is not None:
-            return True
-        return False
+        if self.find_template("complete_career", screenshot, 0.9) is None:
+            return False
+        import time
+        time.sleep(3.0)
+        screenshot = self.take_screenshot()
+        return self.find_template("complete_career", screenshot, 0.9) is not None
 
     def detect_injury(self, screenshot: np.ndarray) -> bool:
         self._update_scale(screenshot)
@@ -611,7 +619,7 @@ class DetectionMixin:
                     pal_orange += 1
                 else:
                     orange_plus += 1
-            elif bar_type in ("green", "blue"):
+            elif bar_type in ("green", "blue", "empty"):
                 partial += 1
 
         return {"partial": partial, "orange_plus": orange_plus, "pal_orange": pal_orange, "pal": 1 if pal_present else 0}

@@ -155,9 +155,50 @@ class NavigationMixin:
                 self.logger.critical("CAREER COMPLETE detected in advance_turn — STOPPING IMMEDIATELY")
                 return
 
-            banner = self.vision.identify_popup_banner(screenshot)
-            if banner == "scheduled_race":
-                self.logger.info("Scheduled Race popup banner in advance_turn — must click Race")
+            screen = self.vision.detect_screen(screenshot)
+
+            if screen == GameScreen.MAIN:
+                close_pos = self.vision.find_template("btn_close", screenshot, 0.80)
+                if close_pos:
+                    has_event_win = any(
+                        self.vision.find_template(ew, screenshot, 0.82)
+                        for ew in ["event_scenario_window", "event_trainee_window", "event_support_window"]
+                    )
+                    if not has_event_win:
+                        self.logger.info("Popup with Close button over MAIN screen — dismissing before proceeding")
+                        self.click_with_offset(*close_pos)
+                        self.wait(2.0)
+                        continue
+                break
+
+            if screen == GameScreen.EVENT:
+                event_type = self.vision.detect_event_type(screenshot)
+                if event_type:
+                    handled = self.handle_event(self._event_db)
+                    if handled:
+                        idle_count = 0
+                        event_fail_count = 0
+                    else:
+                        event_fail_count += 1
+                        if event_fail_count >= 2:
+                            self.logger.info("Event detected but unhandable twice — treating as transition")
+                            gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+                            self.click_with_offset(gx + gw // 2, gy + int(gh * 0.5))
+                            self.wait(0.5)
+                            event_fail_count = 0
+                    continue
+
+            if screen == GameScreen.TRAINING:
+                idle_count += 1
+                if idle_count >= 8:
+                    self.logger.warning("Stuck on training screen — navigating back")
+                    self.navigate_to_main_screen(screenshot)
+                    break
+                self.wait(0.5)
+                continue
+
+            if screen == GameScreen.SCHEDULED_RACE_POPUP:
+                self.logger.info("Scheduled Race popup in advance_turn — must click Race")
                 race_btn = self.vision.find_template("btn_race", screenshot, 0.80)
                 if race_btn:
                     self.click_with_offset(*race_btn)
@@ -173,7 +214,7 @@ class NavigationMixin:
                 idle_count = 0
                 continue
 
-            if banner == "insufficient_fans":
+            if screen == GameScreen.INSUFFICIENT_FANS:
                 insuf_pos = self.vision.find_template("insufficient_fans", screenshot, 0.70)
                 force = self.config.get("race_strategy", {}).get(
                     "force_race_insufficient_fans", True,
@@ -206,20 +247,79 @@ class NavigationMixin:
                 idle_count = 0
                 continue
 
-            race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
-            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup detected (btn_race) — clicking Race")
-                self.click_with_offset(*race_popup)
-                self.wait(1.0)
-                screenshot = self.vision.take_screenshot()
-                for btn in ("btn_ok", "btn_confirm"):
+            if screen == GameScreen.STRATEGY:
+                self.logger.info("Strategy screen detected in advance_turn — selecting strategy")
+                self._select_strategy_on_screen(screenshot)
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.RACE_SELECT:
+                self.logger.info("Race selection screen detected in advance_turn — handling")
+                self._handle_race_selection(screenshot)
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.RACE_START:
+                self.logger.info("Mandatory race start page detected — executing raceday flow")
+                self.execute_race_action("raceday")
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.RACE:
+                if self.vision.find_template("btn_race_confirm", screenshot, 0.65) or \
+                   (self.vision.find_template("btn_race", screenshot, 0.80) and
+                    not self.vision.find_template("btn_race_launch", screenshot, 0.75)):
+                    self.logger.info("Race screen corrected to Race Select — handling selection")
+                    self._handle_race_selection(screenshot)
+                else:
+                    self.logger.info("Race screen detected in advance_turn — running race")
+                    self._run_race()
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.RACE_RESULT:
+                for btn in ("btn_next", "btn_tap", "btn_race_next_finish", "btn_skip"):
                     pos = self.vision.find_template(btn, screenshot, threshold=0.75)
                     if pos:
-                        self.logger.info(f"Race confirmation popup in advance_turn — clicking {btn}")
-                        self.click_with_offset(*pos)
-                        self.wait(0.8)
-                        break
+                        gx, _, gw, _ = self.vision.get_game_rect(screenshot)
+                        if gx <= pos[0] <= gx + gw:
+                            self.click_button(btn, screenshot)
+                            self.wait(2.0)
+                            break
                 idle_count = 0
+                continue
+
+            if screen == GameScreen.UNITY:
+                self.logger.info("Unity screen detected in advance_turn — executing Unity Cup")
+                self.execute_unity_cup()
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.CLAW_MACHINE:
+                self.logger.info("Claw machine detected in advance_turn — executing")
+                self.execute_claw_machine()
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.INSPIRATION:
+                self.click_button("btn_inspiration", screenshot)
+                self.wait(2.0)
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.TRY_AGAIN:
+                self.logger.info("Try Again screen detected in advance_turn")
+                self._handle_try_again_cancel()
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.RECREATION:
+                self.wait(2.0)
+                idle_count = 0
+                continue
+
+            if screen == GameScreen.SKILL_SELECT:
+                self.wait(0.5)
                 continue
 
             close_pos = self.vision.find_template("btn_close", screenshot, 0.80)
@@ -235,25 +335,16 @@ class NavigationMixin:
                 if not has_event_win and not has_race_popup:
                     self.logger.info("Popup with Close button detected — dismissing")
                     self.click_with_offset(*close_pos)
-                    self.wait(0.8)
+                    self.wait(2.0)
                     idle_count = 0
                     continue
 
-            strat_count = sum(1 for s in ["strategy_end", "strategy_late", "strategy_pace", "strategy_front"]
-                              if self.vision.find_template(s, screenshot, 0.80))
-            if strat_count >= 4:
-                self.logger.info("Strategy screen detected in advance_turn — selecting strategy")
-                self._select_strategy_on_screen(screenshot)
-                idle_count = 0
-                continue
-
-            is_skill_screen = (
-                self.vision.find_template("learn_btn", screenshot, 0.72) or
-                self.vision.find_template("buy_skill", screenshot, 0.82)
-            )
-            if not is_skill_screen and self.vision.find_template("btn_race_confirm", screenshot, 0.65):
-                self.logger.info("Race selection screen detected in advance_turn — handling")
-                self._handle_race_selection(screenshot)
+            cancel_pos = self.vision.find_template("btn_cancel", screenshot, threshold=0.75)
+            ok_pos = self.vision.find_template("btn_ok", screenshot, threshold=0.75)
+            if cancel_pos and ok_pos:
+                self.logger.info("Conflict popup (Cancel+OK) in advance_turn — clicking Cancel to preserve race")
+                self.click_with_offset(*cancel_pos)
+                self.wait(2.0)
                 idle_count = 0
                 continue
 
@@ -265,55 +356,6 @@ class NavigationMixin:
                 idle_count = 0
                 continue
 
-            unity_buttons = [
-                "btn_begin_showdown", "btn_see_unity_results",
-                "btn_next_unity", "btn_launch_final_unity",
-                "btn_unity_launch", "btn_select_opponent",
-            ]
-            is_unity = any(self.vision.find_template(ub, screenshot, 0.70) for ub in unity_buttons)
-            if is_unity:
-                self.logger.info("Unity screen detected in advance_turn — executing Unity Cup")
-                self.execute_unity_cup()
-                idle_count = 0
-                continue
-
-            if self.vision.find_template("btn_inspiration", screenshot, threshold=0.75):
-                self.click_button("btn_inspiration", screenshot)
-                self.wait(0.5)
-                idle_count = 0
-                continue
-
-            claw_pos = self.vision.find_template("btn_claw_machine", screenshot, threshold=0.72)
-            if claw_pos:
-                self.logger.info("Claw machine button detected in advance_turn — executing")
-                self.execute_claw_machine()
-                idle_count = 0
-                continue
-
-            if self.vision.find_template("btn_try_again", screenshot, threshold=0.75):
-                self.logger.info("Try Again screen detected in advance_turn")
-                self._handle_try_again_cancel()
-                idle_count = 0
-                continue
-
-            race_popup = self.vision.find_template("btn_race", screenshot, threshold=0.80)
-            if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup in advance_turn — clicking Race")
-                self.click_with_offset(*race_popup)
-                self.wait(1.0)
-                self._run_race()
-                idle_count = 0
-                continue
-
-            cancel_pos = self.vision.find_template("btn_cancel", screenshot, threshold=0.75)
-            ok_pos = self.vision.find_template("btn_ok", screenshot, threshold=0.75)
-            if cancel_pos and ok_pos:
-                self.logger.info("Conflict popup (Cancel+OK) in advance_turn — clicking Cancel to preserve race")
-                self.click_with_offset(*cancel_pos)
-                self.wait(0.8)
-                idle_count = 0
-                continue
-
             found_btn = False
             for btn in ("btn_next", "btn_tap", "btn_race_next_finish", "btn_skip", "btn_ok"):
                 pos = self.vision.find_template(btn, screenshot, threshold=0.75)
@@ -321,27 +363,11 @@ class NavigationMixin:
                     gx, _, gw, _ = self.vision.get_game_rect(screenshot)
                     if gx <= pos[0] <= gx + gw:
                         self.click_button(btn, screenshot)
-                        self.wait(0.5)
+                        self.wait(2.0)
                         found_btn = True
                         idle_count = 0
                         break
             if found_btn:
-                continue
-
-            event_type = self.vision.detect_event_type(screenshot)
-            if event_type:
-                handled = self.handle_event(self._event_db)
-                if handled:
-                    idle_count = 0
-                    event_fail_count = 0
-                else:
-                    event_fail_count += 1
-                    if event_fail_count >= 2:
-                        self.logger.info("Event detected but unhandable twice — treating as transition")
-                        gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
-                        self.click_with_offset(gx + gw // 2, gy + int(gh * 0.5))
-                        self.wait(1.0)
-                        event_fail_count = 0
                 continue
 
             choices = self.vision.find_all_template("event_choice", screenshot, threshold=0.75, min_distance=30)
@@ -377,19 +403,6 @@ class NavigationMixin:
                     self.logger.info("Event choices detected on race schedule screen — ignoring")
                     idle_count += 1
                     continue
-                screen_check = self.vision.detect_screen(screenshot)
-                if screen_check not in (GameScreen.EVENT, GameScreen.UNKNOWN):
-                    self.logger.info(
-                        f"Event choices detected but screen is {screen_check.value} — not an event"
-                    )
-                    if screen_check == GameScreen.MAIN:
-                        break
-                    if screen_check == GameScreen.TRAINING:
-                        self.logger.info("advance_turn: on training screen, navigating back to main")
-                        self.navigate_to_main_screen(screenshot)
-                        break
-                    idle_count += 1
-                    continue
                 gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
                 ec = self.vision._calibration.get("event_choices", {})
                 y_min = gy + int(gh * ec.get("y1", 0.35))
@@ -402,17 +415,9 @@ class NavigationMixin:
                         idle_count = 0
                     continue
 
-            screen = self.vision.detect_screen(screenshot)
-            if screen == GameScreen.MAIN:
-                break
-            if screen == GameScreen.TRAINING:
-                self.logger.info("advance_turn: on training screen, navigating back to main")
-                self.navigate_to_main_screen(screenshot)
-                break
-
             idle_count += 1
             if idle_count >= 8:
                 self.logger.warning("Stuck in unknown state for too long")
                 break
             self.logger.debug(f"No actionable UI found — waiting (idle {idle_count}/8)")
-            self.wait(1.5)
+            self.wait(0.5)

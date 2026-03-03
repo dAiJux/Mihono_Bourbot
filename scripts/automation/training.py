@@ -1,4 +1,6 @@
 import time
+import random
+import ctypes
 import win32gui
 import win32con
 import numpy as np
@@ -51,7 +53,7 @@ class TrainingMixin:
             if not self.click_button("btn_training", screenshot):
                 self.logger.error("Cannot find Training button on main screen")
                 return "failed"
-            self.wait(1.0)
+            self.wait(2.0)
             screenshot = self.vision.take_screenshot()
             screen = self.vision.detect_screen(screenshot)
 
@@ -80,7 +82,7 @@ class TrainingMixin:
                 return None
 
             if self.click_button("btn_training", screenshot):
-                self.wait(1.0)
+                self.wait(2.0)
                 screenshot = self.vision.take_screenshot()
             else:
                 self.logger.error("Cannot reach training screen")
@@ -203,7 +205,8 @@ class TrainingMixin:
         if target != currently_selected:
             self.logger.info(f"Switching from {currently_selected} to {target}")
             self.click_with_offset(*target_pos)
-            time.sleep(1.0)
+            if self._interruptible_sleep(1.0):
+                return None
             screenshot = self.vision.take_screenshot()
             new_pos = self.vision.find_template(f"training_{target}", screenshot, 0.55)
             if new_pos:
@@ -212,7 +215,20 @@ class TrainingMixin:
 
         self.logger.info(f"Confirming training '{target}' at {target_pos}")
         self.click_with_offset(*target_pos)
-        self.wait(0.5)
+        if self._is_steam():
+            time.sleep(random.uniform(0.05, 0.10))
+            self.click_with_offset(*target_pos)
+        for attempt in range(8):
+            if self._interruptible_sleep(0.5):
+                return None
+            if self._check_stopped():
+                return None
+            ss = self.vision.take_screenshot()
+            if self.vision.detect_screen(ss) != GameScreen.TRAINING:
+                break
+            if attempt == 2:
+                self.logger.info(f"Re-clicking training '{target}' (click may have been missed)")
+                self.click_with_offset(*target_pos)
         if self._handle_scheduled_race_popup():
             self.logger.info("Scheduled race preserved — navigating to main for race")
             self.navigate_to_main_screen(self.vision.take_screenshot())
@@ -243,7 +259,7 @@ class TrainingMixin:
             else:
                 self.logger.error("Cannot find Rest button")
                 return
-        self.wait(0.5)
+        self.wait(2.0)
         if self._handle_scheduled_race_popup():
             return
         self._handle_claw_machine()
@@ -263,7 +279,8 @@ class TrainingMixin:
                 pos = self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7)
                 if pos:
                     break
-                time.sleep(1.0)
+                if self._interruptible_sleep(1.0):
+                    return
             if not pos:
                 self.logger.warning(f"Claw machine button not found for round {round_num}")
                 continue
@@ -271,13 +288,20 @@ class TrainingMixin:
             client_y = pos[1] - self.vision._client_offset_y
             lp = self._make_lparam(client_x, client_y)
             hwnd = self.vision.game_hwnd
-            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+            if self._is_steam():
+                origin = win32gui.ClientToScreen(hwnd, (0, 0))
+                win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+                win32gui.SendMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
+                ctypes.windll.user32.SetCursorPos(origin[0] + client_x, origin[1] + client_y)
+                time.sleep(0.045)
+            win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
             for _ in range(20):
                 time.sleep(0.1)
                 win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp)
-            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+            win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
             self.logger.info(f"Claw Machine round {round_num} — held 2 seconds")
-            time.sleep(3.0)
+            if self._interruptible_sleep(3.0):
+                return
         self.logger.info("Claw Machine done — waiting for OK button")
         self.wait_and_click("btn_ok", timeout=15)
 

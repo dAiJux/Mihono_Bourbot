@@ -316,35 +316,15 @@ class BotLauncher(tk.Tk):
             bg=self.BG, fg=self.FG_DIM,
         ).pack(side="left", padx=(8, 0), pady=(5, 0))
 
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill="both", expand=True, padx=12, pady=6)
-
-        tab_stats = ttk.Frame(notebook)
-        notebook.add(tab_stats, text="  Stats & Priority  ")
-        self._build_stats_tab(self._scrollable_tab(tab_stats))
-
-        tab_race = ttk.Frame(notebook)
-        notebook.add(tab_race, text="  Race & Thresholds  ")
-        self._build_race_tab(self._scrollable_tab(tab_race))
-
-        tab_skills = ttk.Frame(notebook)
-        notebook.add(tab_skills, text="  Skills  ")
-        self._build_skills_tab(tab_skills)
-
-        tab_window = ttk.Frame(notebook)
-        notebook.add(tab_window, text="  Window  ")
-        self.after_idle(lambda p=tab_window: self._build_window_tab(p))
-
-        tab_auto = ttk.Frame(notebook)
-        notebook.add(tab_auto, text="  Automation & Safety  ")
-        self._build_auto_tab(self._scrollable_tab(tab_auto))
-
-        tab_log = ttk.Frame(notebook)
-        notebook.add(tab_log, text="  Log  ")
-        self._build_log_tab(tab_log)
+        self.status_var = tk.StringVar(value="Ready")
+        self.status_bar = ttk.Label(
+            self, textvariable=self.status_var, style="Status.TLabel",
+            relief="flat", anchor="w",
+        )
+        self.status_bar.pack(side="bottom", fill="x", padx=12, pady=(2, 10))
 
         ctrl = ttk.LabelFrame(self, text="Controls")
-        ctrl.pack(fill="x", padx=12, pady=(4, 2))
+        ctrl.pack(side="bottom", fill="x", padx=12, pady=(4, 2))
 
         left = ttk.Frame(ctrl)
         left.pack(side="left", padx=10, pady=10)
@@ -374,12 +354,32 @@ class BotLauncher(tk.Tk):
         )
         self.stop_btn.pack(side="left", padx=4)
 
-        self.status_var = tk.StringVar(value="Ready")
-        self.status_bar = ttk.Label(
-            self, textvariable=self.status_var, style="Status.TLabel",
-            relief="flat", anchor="w",
-        )
-        self.status_bar.pack(fill="x", padx=12, pady=(2, 10))
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill="both", expand=True, padx=12, pady=6)
+
+        tab_stats = ttk.Frame(notebook)
+        notebook.add(tab_stats, text="  Stats & Priority  ")
+        self._build_stats_tab(self._scrollable_tab(tab_stats))
+
+        tab_race = ttk.Frame(notebook)
+        notebook.add(tab_race, text="  Race & Thresholds  ")
+        self._build_race_tab(self._scrollable_tab(tab_race))
+
+        tab_skills = ttk.Frame(notebook)
+        notebook.add(tab_skills, text="  Skills  ")
+        self._build_skills_tab(tab_skills)
+
+        tab_window = ttk.Frame(notebook)
+        notebook.add(tab_window, text="  Window  ")
+        self.after_idle(lambda p=self._scrollable_tab(tab_window): self._build_window_tab(p))
+
+        tab_auto = ttk.Frame(notebook)
+        notebook.add(tab_auto, text="  Automation & Safety  ")
+        self._build_auto_tab(self._scrollable_tab(tab_auto))
+
+        tab_log = ttk.Frame(notebook)
+        notebook.add(tab_log, text="  Log  ")
+        self._build_log_tab(tab_log)
 
     def _scrollable_tab(self, tab_frame):
         canvas = tk.Canvas(tab_frame, bg=self.BG, highlightthickness=0, bd=0)
@@ -438,7 +438,7 @@ class BotLauncher(tk.Tk):
         plat_combo.pack(side="left")
         ttk.Label(
             plat_row,
-            text="Google Play = centered 9:16 (DMM, emulators).  Steam = wider layout + sidebar.",
+            text="Google Play = centered.  Steam = wider layout + sidebar.",
             style="Dim.TLabel",
         ).pack(side="left", padx=(12, 0))
 
@@ -1214,24 +1214,353 @@ class BotLauncher(tk.Tk):
 
     def _test_vision(self):
         self._save_config()
-        self._log("Starting vision test...")
+        self._log("Opening Vision Test...")
+        try:
+            from scripts.gui.prereqs import bootstrap_libs, preload_cv2
+            bootstrap_libs()
+            preload_cv2()
+            VisionTestDialog(self, CONFIG_PATH)
+        except Exception as e:
+            full_tb = traceback.format_exc()
+            self._log("ERROR: " + str(e))
+            for line in full_tb.splitlines():
+                self._log(line)
 
-        def _run():
-            try:
-                from scripts.gui.prereqs import bootstrap_libs, preload_cv2
-                bootstrap_libs()
-                preload_cv2()
-                from scripts.bot import MihonoBourbot
 
-                bot = MihonoBourbot(config_path=CONFIG_PATH)
-                bot.test_vision()
-            except Exception as e:
-                full_tb = traceback.format_exc()
-                self._log("ERROR: " + str(e))
-                for line in full_tb.splitlines():
-                    self._log(line)
+class VisionTestDialog(tk.Toplevel):
 
-        threading.Thread(target=_run, daemon=True).start()
+    _COLORS = {
+        "game_rect":  (0, 255, 0),
+        "button":     (128, 255, 128),
+        "stat":       (0, 180, 255),
+        "energy":     (0, 200, 255),
+        "mood":       (255, 128, 0),
+        "event":      (200, 100, 255),
+        "warning":    (0, 0, 255),
+    }
+
+    _MAIN_BUTTONS = [
+        "btn_training", "btn_rest", "btn_recreation", "btn_races",
+        "btn_rest_summer", "btn_skills",
+    ]
+    _GENERIC_BUTTONS = [
+        "btn_confirm", "btn_ok", "btn_close", "btn_cancel",
+        "btn_skip", "btn_tap", "btn_next", "btn_back",
+        "btn_race_start", "btn_race_next_finish",
+        "btn_inspiration", "btn_claw_machine", "btn_try_again",
+    ]
+    _RACE_BUTTONS = [
+        "race_view_results_on", "race_view_results_off",
+        "btn_race_start", "btn_race_start_ura", "btn_race_launch",
+        "btn_change_strategy", "btn_skip",
+    ]
+    _STRATEGY_TEMPLATES = [
+        "strategy_end", "strategy_late", "strategy_pace", "strategy_front",
+    ]
+
+    def __init__(self, parent, config_path):
+        super().__init__(parent)
+        self.title("Vision Test")
+        self.configure(bg="#1e1e2e")
+        self.minsize(800, 500)
+
+        with open(config_path, encoding="utf-8") as f:
+            self._config = json.load(f)
+        self._config_path = config_path
+
+        self._vision = None
+        self._photo = None
+        self._busy = False
+
+        top_bar = tk.Frame(self, bg="#1e1e2e")
+        top_bar.pack(fill="x", padx=8, pady=(8, 0))
+
+        self._refresh_btn = tk.Button(
+            top_bar, text="\u21bb  Refresh", font=("Segoe UI", 10),
+            bg="#7c6fff", fg="white", activebackground="#6a5de0",
+            relief="flat", padx=12, pady=4, command=self._on_refresh,
+        )
+        self._refresh_btn.pack(side="left")
+
+        self._status_var = tk.StringVar(value="Click Refresh to capture a screenshot")
+        tk.Label(
+            top_bar, textvariable=self._status_var,
+            bg="#1e1e2e", fg="#888ca8", font=("Segoe UI", 9),
+        ).pack(side="left", padx=12)
+
+        body = tk.PanedWindow(
+            self, orient="horizontal", bg="#252538",
+            sashwidth=4, sashrelief="flat",
+        )
+        body.pack(fill="both", expand=True, padx=8, pady=8)
+
+        img_frame = tk.Frame(body, bg="#1e1e2e")
+        body.add(img_frame, stretch="always")
+
+        self._canvas = tk.Canvas(img_frame, bg="#1e1e2e", highlightthickness=0)
+        self._canvas.pack(fill="both", expand=True)
+
+        info_frame = tk.Frame(body, bg="#1e1e2e", width=320)
+        body.add(info_frame, stretch="never")
+
+        self._info_text = tk.Text(
+            info_frame, bg="#1e1e2e", fg="#cdd6f4",
+            font=("Consolas", 9), wrap="word", state="disabled",
+            relief="flat", borderwidth=0, padx=6, pady=6,
+        )
+        scroll = ttk.Scrollbar(info_frame, command=self._info_text.yview)
+        self._info_text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        self._info_text.pack(fill="both", expand=True)
+
+        self._info_text.tag_configure("header", foreground="#7c6fff", font=("Consolas", 10, "bold"))
+        self._info_text.tag_configure("ok", foreground="#5a9e57")
+        self._info_text.tag_configure("warn", foreground="#b89b4a")
+        self._info_text.tag_configure("bad", foreground="#c45c6a")
+
+        self._canvas.bind("<Configure>", lambda e: self._redraw_image())
+
+        self.after(200, self._on_refresh)
+
+    def _init_vision(self):
+        if self._vision is not None:
+            return
+        from scripts.vision import VisionModule
+        self._vision = VisionModule(self._config)
+        self._vision.find_game_window()
+
+    def _on_refresh(self):
+        if self._busy:
+            return
+        self._busy = True
+        self._refresh_btn.configure(state="disabled")
+        self._status_var.set("Capturing...")
+        threading.Thread(target=self._capture_and_analyse, daemon=True).start()
+
+    def _capture_and_analyse(self):
+        try:
+            self._init_vision()
+            if not self._vision.game_hwnd:
+                self._vision.find_game_window()
+            if not self._vision.game_hwnd:
+                self.after(0, lambda: self._show_error("Game window not found"))
+                return
+
+            ss = self._vision.take_screenshot()
+            gx, gy, gw, gh = self._vision.get_game_rect(ss)
+            info = []
+            detections = []
+
+            screen = self._vision.detect_screen(ss)
+            info.append(("SCREEN", f"{screen.value.upper()}", "header"))
+
+            platform = self._config.get("platform", "google_play")
+            info.append(("", f"Platform: {platform}", None))
+            info.append(("", f"Game area: {gw}x{gh} at ({gx},{gy})", None))
+
+            detections.append(("rect", self._COLORS["game_rect"], gx, gy, gx + gw, gy + gh, "Game"))
+
+            from scripts.models import GameScreen
+
+            if screen in (GameScreen.MAIN, GameScreen.TRAINING, GameScreen.EVENT,
+                          GameScreen.RACE_SELECT, GameScreen.INSUFFICIENT_FANS,
+                          GameScreen.SCHEDULED_RACE_POPUP, GameScreen.UNKNOWN):
+                energy = self._vision.read_energy_percentage(ss)
+                tag = "ok" if energy >= 50 else ("warn" if energy >= 30 else "bad")
+                info.append(("ENERGY", f"{energy:.0f}%", tag))
+
+                eb = self._vision._calibration.get("energy_bar", {})
+                if eb:
+                    xf = self._vision._aspect_x_factor(gw, gh)
+                    ey1 = gy + int(gh * eb.get("y1", 0.082))
+                    ey2 = gy + int(gh * eb.get("y2", 0.098))
+                    ex1 = gx + int(gw * eb.get("x1", 0.33) * xf)
+                    ex2 = gx + int(gw * eb.get("x2", 0.69) * xf)
+                    detections.append(("rect", self._COLORS["energy"], ex1, ey1, ex2, ey2, f"Energy {energy:.0f}%"))
+
+                mood = self._vision.detect_mood(ss)
+                mtag = "ok" if mood in ("great", "good") else ("warn" if mood == "normal" else "bad")
+                info.append(("MOOD", mood, mtag))
+
+                mz = self._vision._calibration.get("mood_zone", {})
+                if mz and mood != "unknown":
+                    mx = gx + int(gw * (mz.get("x1", 0.70) + mz.get("x2", 0.90)) / 2)
+                    my = gy + int(gh * (mz.get("y1", 0.095) + mz.get("y2", 0.155)) / 2)
+                    detections.append(("dot", self._COLORS["mood"], mx, my, f"Mood: {mood}"))
+
+            if screen in (GameScreen.MAIN, GameScreen.TRAINING):
+                stats = self._vision.read_stats(ss)
+                if stats:
+                    info.append(("STATS", "", "header"))
+                    for name in ("speed", "stamina", "power", "guts", "wit"):
+                        val = stats.get(name, "?")
+                        info.append(("", f"  {name.title()}: {val}", None))
+
+                    for name in ("speed", "stamina", "power", "guts", "wit"):
+                        cal = self._vision._calibration.get(f"stat_{name}")
+                        if cal and "x1" in cal and name in stats:
+                            sx1 = max(0, gx + int(gw * cal["x1"]))
+                            sx2 = min(ss.shape[1], gx + int(gw * cal["x2"]))
+                            sy1 = gy + int(gh * 0.665)
+                            sy2 = gy + int(gh * 0.690)
+                            detections.append(("rect", self._COLORS["stat"], sx1, sy1, sx2, sy2,
+                                               f"{name[:3].upper()} {stats.get(name, '?')}"))
+
+                has_injury = self._vision.detect_injury(ss)
+                if has_injury:
+                    info.append(("INJURY", "Detected!", "bad"))
+
+            if screen in (GameScreen.MAIN, GameScreen.UNKNOWN):
+                info.append(("BUTTONS", "", "header"))
+                for btn in self._MAIN_BUTTONS:
+                    pos, conf = self._vision.find_template_conf(btn, ss, 0.70)
+                    if pos and gx <= pos[0] <= gx + gw:
+                        short = btn.replace("btn_", "")
+                        pct = int(conf * 100)
+                        info.append(("", f"  {short} — Précision : {pct}%", "ok"))
+                        detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
+
+            if screen == GameScreen.TRAINING:
+                info.append(("TRAINING", "", "header"))
+                rainbow_count = self._vision.detect_rainbow_training(ss)
+                bursts = self._vision.detect_burst_training(ss)
+                info.append(("", f"  Rainbow: {rainbow_count}", "ok" if rainbow_count else None))
+                info.append(("", f"  White bursts: {len(bursts['white'])}", None))
+                info.append(("", f"  Blue bursts: {len(bursts['blue'])}", None))
+
+            if screen == GameScreen.EVENT:
+                event_type = self._vision.detect_event_type(ss)
+                info.append(("EVENT", f"Type: {event_type or 'unknown'}", "header"))
+
+            if screen in (GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNKNOWN):
+                for btn in self._RACE_BUTTONS:
+                    pos, conf = self._vision.find_template_conf(btn, ss, 0.70)
+                    if pos and gx <= pos[0] <= gx + gw:
+                        short = btn.replace("race_view_results_", "vr_").replace("btn_", "")
+                        pct = int(conf * 100)
+                        info.append(("", f"  {short} — Précision : {pct}%", "ok"))
+                        detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
+
+            if screen == GameScreen.STRATEGY:
+                info.append(("STRATEGY", "", "header"))
+                for s in self._STRATEGY_TEMPLATES:
+                    pos, conf = self._vision.find_template_conf(s, ss, 0.75)
+                    if pos:
+                        short = s.replace("strategy_", "")
+                        pct = int(conf * 100)
+                        info.append(("", f"  {short} — Précision : {pct}%", "ok"))
+                        detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
+
+            if screen in (GameScreen.INSUFFICIENT_FANS, GameScreen.SCHEDULED_RACE_POPUP):
+                banner = self._vision.identify_popup_banner(ss)
+                info.append(("BANNER", banner or "?", "header"))
+
+            if screen in (GameScreen.MAIN, GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.RACE_START):
+                gdate = self._vision.read_game_date(ss)
+                if gdate:
+                    ds = f"{gdate.get('year','')} {gdate.get('half','')} {gdate.get('month','')}".strip()
+                    if gdate.get("turn"):
+                        ds += f" (turn {gdate['turn']})"
+                    info.append(("DATE", ds, None))
+
+            gen_btns = self._GENERIC_BUTTONS
+            if screen in (GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.RACE_START, GameScreen.TRY_AGAIN):
+                gen_btns = [b for b in gen_btns if b != "btn_confirm"]
+            found_gen = []
+            for btn in gen_btns:
+                pos, conf = self._vision.find_template_conf(btn, ss, 0.70)
+                if pos and gx <= pos[0] <= gx + gw:
+                    short = btn.replace("btn_", "")
+                    pct = int(conf * 100)
+                    found_gen.append(f"{short} ({pct}%)")
+                    detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
+            if found_gen:
+                info.append(("GENERIC", ", ".join(found_gen), None))
+
+            self._last_ss = ss
+            self._last_detections = detections
+            self._last_info = info
+            self._last_game_rect = (gx, gy, gw, gh)
+            self.after(0, self._update_ui)
+
+        except Exception as exc:
+            self.after(0, lambda: self._show_error(str(exc)))
+        finally:
+            self._busy = False
+            self.after(0, lambda: self._refresh_btn.configure(state="normal"))
+
+    def _show_error(self, msg):
+        self._status_var.set(f"Error: {msg}")
+        self._busy = False
+        self._refresh_btn.configure(state="normal")
+
+    def _update_ui(self):
+        import cv2
+        import numpy as np
+
+        ss = self._last_ss
+        detections = self._last_detections
+        info = self._last_info
+
+        overlay = ss.copy()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        for det in detections:
+            if det[0] == "rect":
+                _, col, x1, y1, x2, y2, label = det
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), col, 2)
+                if label:
+                    (tw, th), _ = cv2.getTextSize(label, font, 0.45, 1)
+                    lx, ly = x1 + 4, y1 - 6
+                    sub = overlay[max(0, ly - th - 2):max(0, ly + 3), max(0, lx - 2):min(overlay.shape[1], lx + tw + 2)]
+                    if sub.size > 0:
+                        overlay[max(0, ly - th - 2):max(0, ly + 3), max(0, lx - 2):min(overlay.shape[1], lx + tw + 2)] = (sub * 0.3).astype(np.uint8)
+                    cv2.putText(overlay, label, (lx, ly), font, 0.45, col, 1, cv2.LINE_AA)
+            elif det[0] == "dot":
+                _, col, x, y, label = det
+                cv2.circle(overlay, (x, y), 12, col, 2)
+                cv2.circle(overlay, (x, y), 3, col, -1)
+                if label:
+                    (tw, th), _ = cv2.getTextSize(label, font, 0.45, 1)
+                    lx, ly = x + 16, y + 5
+                    sub = overlay[max(0, ly - th - 2):max(0, ly + 3), max(0, lx - 2):min(overlay.shape[1], lx + tw + 2)]
+                    if sub.size > 0:
+                        overlay[max(0, ly - th - 2):max(0, ly + 3), max(0, lx - 2):min(overlay.shape[1], lx + tw + 2)] = (sub * 0.3).astype(np.uint8)
+                    cv2.putText(overlay, label, (lx, ly), font, 0.45, col, 1, cv2.LINE_AA)
+
+        self._overlay_bgr = overlay
+        self._redraw_image()
+
+        self._info_text.configure(state="normal")
+        self._info_text.delete("1.0", "end")
+        for label, value, tag in info:
+            line = f"{label}: {value}\n" if label else f"{value}\n"
+            self._info_text.insert("end", line, tag or ())
+        self._info_text.configure(state="disabled")
+
+        self._status_var.set("Capture complete")
+
+    def _redraw_image(self):
+        if not hasattr(self, "_overlay_bgr") or self._overlay_bgr is None:
+            return
+        import cv2
+        from PIL import Image, ImageTk
+
+        cw = self._canvas.winfo_width()
+        ch = self._canvas.winfo_height()
+        if cw < 10 or ch < 10:
+            return
+
+        h, w = self._overlay_bgr.shape[:2]
+        scale = min(cw / w, ch / h)
+        nw, nh = int(w * scale), int(h * scale)
+        resized = cv2.resize(self._overlay_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(rgb)
+        self._photo = ImageTk.PhotoImage(img)
+        self._canvas.delete("all")
+        self._canvas.create_image(cw // 2, ch // 2, image=self._photo, anchor="center")
+
 
 def main():
     Path("logs").mkdir(exist_ok=True)

@@ -7,17 +7,16 @@ class RaceMixin:
         screenshot = self.vision.take_screenshot()
 
         if race_type == "raceday":
-            if not self.click_button("btn_race", screenshot):
-                pos = self.vision.detect_race_start_button(screenshot)
-                if pos:
-                    self.logger.info(f"Race start button clicked at {pos}")
-                    self.click_with_offset(*pos)
-                else:
-                    self.logger.error("Cannot find any race start button on race day")
-                    return
+            pos = self.vision.detect_race_start_button(screenshot)
+            if pos:
+                self.logger.info(f"Race start button clicked at {pos}")
+                self.click_with_offset(*pos)
+            elif not self.click_button("btn_race", screenshot):
+                self.logger.error("Cannot find any race start button on race day")
+                return
             self.wait(1.0)
             self._dismiss_race_confirm_popup()
-            self.wait(0.5)
+            self.wait(1.0)
             self._handle_mandatory_race_flow()
             return
 
@@ -44,7 +43,7 @@ class RaceMixin:
             if pos and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
                 self.logger.info(f"Race confirmation popup — clicking {btn}")
                 self.click_with_offset(*pos)
-                self.wait(0.8)
+                self.wait(2.0)
                 return
 
     def _handle_mandatory_race_flow(self):
@@ -195,7 +194,7 @@ class RaceMixin:
         if not self.click_button("btn_change_strategy"):
             self.logger.warning("btn_change_strategy not found")
             return
-        self.wait(1.0)
+        self.wait(2.0)
         strategy_btn = f"strategy_{strategy.lower()}"
         if not self.click_button(strategy_btn):
             self.logger.warning(f"Could not find strategy button: {strategy_btn}")
@@ -216,7 +215,7 @@ class RaceMixin:
             self.logger.info("View Results available — clicking to skip race animation")
             self.click_button("race_view_results_on", screenshot)
             skip_animation = True
-            self.wait(5.0)
+            self.wait(2.0)
         else:
             vr_off = self.vision.find_template("race_view_results_off", screenshot, threshold=0.70)
             if vr_off:
@@ -226,7 +225,7 @@ class RaceMixin:
                 screenshot = self.vision.take_screenshot()
                 if self.click_button("race_view_results_on", screenshot):
                     skip_animation = True
-                    self.wait(5.0)
+                    self.wait(2.0)
 
             if not skip_animation:
                 self.logger.info("Launching race with animation")
@@ -266,7 +265,7 @@ class RaceMixin:
 
         if skip_animation:
             self.logger.info("Waiting for race results screen (post-View Results)...")
-            time.sleep(4.0)
+            time.sleep(1.0)
         else:
             self.logger.info("Waiting for race results screen...")
 
@@ -279,7 +278,7 @@ class RaceMixin:
                     self.logger.info(f"Race results screen detected ({btn})")
                     break
             else:
-                time.sleep(1.5)
+                time.sleep(0.8)
                 continue
             break
 
@@ -297,10 +296,6 @@ class RaceMixin:
             if self.vision.find_template("btn_try_again", screenshot, threshold=0.75):
                 self.logger.info("Try Again screen detected during results")
                 self._handle_try_again_cancel()
-                return
-
-            if self.vision.is_at_career_complete(screenshot):
-                self.logger.critical("CAREER COMPLETE in race results — stopping")
                 return
 
             if self.vision.find_template("btn_inspiration", screenshot, threshold=0.75):
@@ -329,7 +324,7 @@ class RaceMixin:
 
             if not found:
                 no_button_count += 1
-                if no_button_count >= 3 and not center_tapped:
+                if no_button_count >= 2 and not center_tapped:
                     gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
                     tap_x = gx + gw // 2
                     tap_y = gy + int(gh * 0.83)

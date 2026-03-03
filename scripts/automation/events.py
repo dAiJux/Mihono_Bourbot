@@ -171,14 +171,14 @@ class EventMixin:
         self.logger.info(f"Selecting choice {choice}/{len(choices)}")
         idx = min(choice - 1, len(choices) - 1)
         self.click_with_offset(*choices[idx])
-        self.wait(0.5)
+        self.wait(1.0)
 
         if self.vision.find_template("btn_confirm"):
             if self.vision.is_at_career_complete():
                 self.logger.critical("CAREER COMPLETE detected — refusing to click confirm!")
                 return False
             self.click_button("btn_confirm")
-            self.wait(0.5)
+            self.wait(1.0)
         return True
 
     def _decide_event_visually(self, screenshot) -> int:
