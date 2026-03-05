@@ -76,12 +76,16 @@ class BotLauncher(tk.Tk):
         self.bot_running = False
         self.bot_paused = False
         self._active_bot = None
+        self.after(10, self._deferred_init)
+
+    def _deferred_init(self):
         self._setup_styles()
         self._build_ui()
         self._update_status_bar()
         self.update_idletasks()
-        self._splash.destroy()
-        self._splash = None
+        if self._splash:
+            self._splash.destroy()
+            self._splash = None
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         win_w = min(900, int(sw * 0.65))
@@ -222,7 +226,12 @@ class BotLauncher(tk.Tk):
                          padding=[8, 4])
 
     def _check_prerequisites_on_start(self):
-        issues = check_prerequisites()
+        def _bg():
+            result = check_prerequisites()
+            self.after(0, lambda: self._show_prereq_issues(result))
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _show_prereq_issues(self, issues):
         has_problems = (
             issues.get("python_version")
             or issues["python_packages"]
@@ -433,12 +442,12 @@ class BotLauncher(tk.Tk):
         )
         plat_combo = ttk.Combobox(
             plat_row, textvariable=self._platform_var,
-            values=["google_play", "steam"], width=16, state="readonly",
+            values=["google_play", "ldplayer", "steam"], width=16, state="readonly",
         )
         plat_combo.pack(side="left")
         ttk.Label(
             plat_row,
-            text="Google Play = centered.  Steam = wider layout + sidebar.",
+            text="Google Play / LDPlayer = centered.  Steam = wider layout + sidebar.",
             style="Dim.TLabel",
         ).pack(side="left", padx=(12, 0))
 
@@ -610,19 +619,19 @@ class BotLauncher(tk.Tk):
             ("Speed", targets.get("speed", 600)),
             ("Stamina", targets.get("stamina", 600)),
             ("Power", targets.get("power", 600)),
-            ("Wit", targets.get("wit", 600)),
             ("Guts", targets.get("guts", 600)),
+            ("Wit", targets.get("wit", 600)),
         ]
 
         self.speed_var = tk.StringVar(value=str(stats_info[0][1]))
         self.stamina_var = tk.StringVar(value=str(stats_info[1][1]))
         self.power_var = tk.StringVar(value=str(stats_info[2][1]))
-        self.wit_var = tk.StringVar(value=str(stats_info[3][1]))
-        self.guts_var = tk.StringVar(value=str(stats_info[4][1]))
+        self.guts_var = tk.StringVar(value=str(stats_info[3][1]))
+        self.wit_var = tk.StringVar(value=str(stats_info[4][1]))
 
         vars_list = [
             self.speed_var, self.stamina_var, self.power_var,
-            self.wit_var, self.guts_var,
+            self.guts_var, self.wit_var,
         ]
 
         for i, (label, _) in enumerate(stats_info):
@@ -1484,7 +1493,8 @@ class VisionTestDialog(tk.Toplevel):
             self.after(0, self._update_ui)
 
         except Exception as exc:
-            self.after(0, lambda: self._show_error(str(exc)))
+            err_msg = str(exc)
+            self.after(0, lambda: self._show_error(err_msg))
         finally:
             self._busy = False
             self.after(0, lambda: self._refresh_btn.configure(state="normal"))

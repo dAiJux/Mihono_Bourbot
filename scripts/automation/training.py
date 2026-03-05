@@ -32,14 +32,23 @@ class TrainingMixin:
             training_type = training_info.get("stat")
             cached_energy = training_info.get("energy", -1)
             cached_mood = training_info.get("mood", "unknown")
+            cached_stats = training_info.get("stats")
         else:
             training_type = training_info
             cached_energy = -1
             cached_mood = "unknown"
+            cached_stats = None
         self.logger.info(f"Executing TRAINING (suggested={training_type})...")
 
         screenshot = self.vision.take_screenshot()
-        screen = self.vision.detect_screen(screenshot)
+        main_found = sum(
+            1 for tpl in self.vision.MAIN_SCREEN_BUTTONS[:3]
+            if self.vision.find_template(tpl, screenshot, 0.80)
+        )
+        if main_found >= 2:
+            screen = GameScreen.MAIN
+        else:
+            screen = self.vision.detect_screen(screenshot)
         self.logger.info(f"Screen before training: {screen.value}")
 
         if screen == GameScreen.EVENT:
@@ -51,9 +60,15 @@ class TrainingMixin:
 
         if screen == GameScreen.MAIN:
             if not self.click_button("btn_training", screenshot):
+                self.logger.warning("btn_training not found on MAIN — re-detecting screen")
+                screen = self.vision.detect_screen(screenshot)
+                if screen == GameScreen.EVENT:
+                    self.logger.info("Actually an event screen — handling event")
+                    self.handle_event(self._event_db)
+                    return "failed"
                 self.logger.error("Cannot find Training button on main screen")
                 return "failed"
-            self.wait(2.0)
+            self.wait(1.0)
             screenshot = self.vision.take_screenshot()
             screen = self.vision.detect_screen(screenshot)
 
@@ -82,17 +97,18 @@ class TrainingMixin:
                 return None
 
             if self.click_button("btn_training", screenshot):
-                self.wait(2.0)
+                self.wait(1.0)
                 screenshot = self.vision.take_screenshot()
             else:
                 self.logger.error("Cannot reach training screen")
                 return "failed"
 
-        date_info = self.vision.read_game_date(screenshot)
+        date_info = self.decision._get_cached_date(screenshot)
         current_turn = date_info.get("turn", 0) if date_info else 0
         is_pre_summer = date_info is not None and current_turn < 37
         is_summer = self.vision.is_summer_period(date_info)
         is_junior = not date_info or date_info.get("year") == "junior"
+        is_senior = date_info is not None and date_info.get("year") in ("senior", "finale")
 
         template_positions = self.vision.get_training_options(screenshot)
         found_templates = {k: v for k, v in template_positions.items() if v is not None}
@@ -161,7 +177,10 @@ class TrainingMixin:
             self.wait(0.7)
             screenshot = self.vision.take_screenshot()
 
-            slot_info = self.decision.score_single_training(stat, screenshot, is_pre_summer)
+            slot_info = self.decision.score_single_training(
+                stat, screenshot, is_pre_summer,
+                current_stats=cached_stats, is_senior=is_senior,
+            )
             training_scores[stat] = slot_info
 
         best_slot = max(training_scores, key=lambda s: training_scores[s]["score"]) if training_scores else None
@@ -224,7 +243,11 @@ class TrainingMixin:
             if self._check_stopped():
                 return None
             ss = self.vision.take_screenshot()
-            if self.vision.detect_screen(ss) != GameScreen.TRAINING:
+            still_training = sum(
+                1 for tpl in self.vision.TRAINING_TEMPLATES[:3]
+                if self.vision.find_template(tpl, ss, 0.60)
+            ) >= 2
+            if not still_training:
                 break
             if attempt == 2:
                 self.logger.info(f"Re-clicking training '{target}' (click may have been missed)")
@@ -257,6 +280,12 @@ class TrainingMixin:
             if rest_btn == "btn_rest_summer" and self.click_button("btn_rest", screenshot):
                 pass
             else:
+                self.logger.warning("Rest button not found — re-detecting screen")
+                screen = self.vision.detect_screen(screenshot)
+                if screen == GameScreen.EVENT:
+                    self.logger.info("Actually an event screen — handling event")
+                    self.handle_event(self._event_db)
+                    return
                 self.logger.error("Cannot find Rest button")
                 return
         self.wait(2.0)
@@ -312,6 +341,12 @@ class TrainingMixin:
             self.logger.warning("Infirmary action requested but no injury detected — skipping")
             return
         if not self.click_button("btn_infirmary", screenshot):
+            self.logger.warning("Infirmary button not found — re-detecting screen")
+            screen = self.vision.detect_screen(screenshot)
+            if screen == GameScreen.EVENT:
+                self.logger.info("Actually an event screen — handling event")
+                self.handle_event(self._event_db)
+                return
             self.logger.error("Cannot find Infirmary button")
             return
         self.wait(0.5)
@@ -374,6 +409,12 @@ class TrainingMixin:
         self.logger.info("Executing RECREATION action...")
         screenshot = self.vision.take_screenshot()
         if not self.click_button("btn_recreation", screenshot):
+            self.logger.warning("btn_recreation not found — re-detecting screen")
+            screen = self.vision.detect_screen(screenshot)
+            if screen == GameScreen.EVENT:
+                self.logger.info("Actually an event screen — handling event")
+                self.handle_event(self._event_db)
+                return
             self.logger.error("Cannot find Recreation button")
             return
         self.wait(0.8)

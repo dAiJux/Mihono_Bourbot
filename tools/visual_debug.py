@@ -134,6 +134,8 @@ class VisualDebugTool:
         platform = self.vision.config.get("platform", "google_play")
         if platform == "steam" and self.vision._calibration.get("steam_game_rect"):
             src = f"steam calibration"
+        elif platform == "ldplayer" and self.vision._calibration.get("ldplayer_game_rect"):
+            src = f"ldplayer calibration"
         elif has_left or has_right:
             parts = []
             if has_left:
@@ -147,7 +149,7 @@ class VisualDebugTool:
             src = "auto-detect"
         self.info_lines.append(f"Game area: ({gx},{gy}) {gw}x{gh} [{src}] platform={platform}")
 
-        if platform == "steam":
+        if platform in ("steam", "ldplayer"):
             base_path = Path("config", "calibration.json")
             base_cal = {}
             if base_path.exists():
@@ -156,28 +158,30 @@ class VisualDebugTool:
                         base_cal = json.load(f)
                 except Exception:
                     pass
-            steam_path = Path("config", "calibration_steam.json")
-            steam_overrides = {}
-            if steam_path.exists():
+            _OVR_PATHS = {"steam": "calibration_steam.json", "ldplayer": "calibration_ldplayer.json"}
+            _RECT_KEYS = {"steam": "steam_game_rect", "ldplayer": "ldplayer_game_rect"}
+            ovr_path = Path("config", _OVR_PATHS[platform])
+            overrides = {}
+            if ovr_path.exists():
                 try:
-                    with open(steam_path, encoding="utf-8") as f:
-                        steam_overrides = json.load(f)
+                    with open(ovr_path, encoding="utf-8") as f:
+                        overrides = json.load(f)
                 except Exception:
                     pass
             gp_rect = base_cal.get("game_rect", {})
-            st_rect = base_cal.get("steam_game_rect", {})
-            if gp_rect and st_rect and "x1" in gp_rect and "x1" in st_rect:
+            plat_rect = base_cal.get(_RECT_KEYS[platform], {})
+            if gp_rect and plat_rect and "x1" in gp_rect and "x1" in plat_rect:
                 gp_w = gp_rect["x2"] - gp_rect["x1"]
-                st_w = st_rect["x2"] - st_rect["x1"]
-                xr = gp_w / st_w if st_w > 0 else 1.0
+                plat_w = plat_rect["x2"] - plat_rect["x1"]
+                xr = gp_w / plat_w if plat_w > 0 else 1.0
                 xo = (1.0 - xr) / 2.0
-                n_manual = len(steam_overrides)
-                skip = {"game_rect", "steam_game_rect"}
+                n_manual = len(overrides)
+                skip = {"game_rect", _RECT_KEYS[platform]}
                 n_auto = sum(1 for k, v in base_cal.items()
-                             if k not in skip and k not in steam_overrides
+                             if k not in skip and k not in overrides
                              and isinstance(v, dict) and ("x1" in v or "x" in v))
                 self.info_lines.append(
-                    f"Steam transform: x' = x*{xr:.4f}+{xo:.4f}  "
+                    f"{platform.capitalize()} transform: x' = x*{xr:.4f}+{xo:.4f}  "
                     f"({n_manual} manual, {n_auto} auto)"
                 )
 
@@ -1647,7 +1651,7 @@ class VisualDebugGUI:
             value=self.tool.config.get("platform", "google_play")
         )
         plat_combo = ttk.Combobox(bottom, textvariable=self._platform_var,
-                                  values=["google_play", "steam"],
+                                  values=["google_play", "ldplayer", "steam"],
                                   width=12, state="readonly")
         plat_combo.pack(side=tk.LEFT, padx=(0, 12))
         plat_combo.bind("<<ComboboxSelected>>", self._on_platform_changed)
@@ -1671,6 +1675,8 @@ class VisualDebugGUI:
         ttk.Button(bottom, text="Calibrate Game Rect", command=self._start_calibrate_game_rect,
                    style="Tool.TButton").pack(side=tk.LEFT, padx=2)
         ttk.Button(bottom, text="Calibrate Steam", command=self._start_steam_calibration,
+                   style="Tool.TButton").pack(side=tk.LEFT, padx=2)
+        ttk.Button(bottom, text="Calibrate LDPlayer", command=self._start_ldplayer_calibration,
                    style="Tool.TButton").pack(side=tk.LEFT, padx=2)
         ttk.Button(bottom, text="Calibrate Region", command=self._start_region_calibration,
                    style="Tool.TButton").pack(side=tk.LEFT, padx=2)
@@ -2208,6 +2214,205 @@ class VisualDebugGUI:
         if self.tool.screenshot is not None:
             self._run_detection()
 
+    _LDPLAYER_CAL_STEPS = [
+        ("energy_bar",    "Draw a rectangle around the ENERGY BAR (the colored bar, not the text)"),
+        ("mood_zone",     "Draw a rectangle around the MOOD ICON (the small face icon to the right of energy)"),
+        ("stat_speed",    "Draw a rectangle around the SPEED stat value (e.g. '89')"),
+        ("stat_stamina",  "Draw a rectangle around the STAMINA stat value (e.g. '112')"),
+        ("stat_power",    "Draw a rectangle around the POWER stat value (e.g. '89')"),
+        ("stat_guts",     "Draw a rectangle around the GUTS stat value (e.g. '100')"),
+        ("stat_wit",      "Draw a rectangle around the WIT stat value (e.g. '95')"),
+        ("btn_training",  "Draw a rectangle around the TRAIN button"),
+        ("btn_rest",      "Draw a rectangle around the REST button"),
+        ("btn_recreation","Draw a rectangle around the RECREATION button"),
+        ("btn_races",     "Draw a rectangle around the RACES button"),
+        ("btn_infirmary", "Draw a rectangle around the INFIRMARY button (bottom-left, the nurse icon)"),
+    ]
+
+    def _start_ldplayer_calibration(self):
+        if self.tool.screenshot is None:
+            self._status_var.set("Take a screenshot first")
+            return
+        if self._platform_var.get() != "ldplayer":
+            self._platform_var.set("ldplayer")
+            self._on_platform_changed()
+        self._ldp_cal_data = {}
+        self._ldp_cal_index = 0
+        self._ldp_cal_active = True
+        self._show_raw_for_calibration()
+        self.root.bind("<Escape>", self._cancel_ldplayer_calibration)
+        self._begin_ldp_cal_step()
+
+    def _begin_ldp_cal_step(self):
+        if self._ldp_cal_index >= len(self._LDPLAYER_CAL_STEPS):
+            self._finish_ldplayer_calibration()
+            return
+        key, instruction = self._LDPLAYER_CAL_STEPS[self._ldp_cal_index]
+        step = self._ldp_cal_index + 1
+        total = len(self._LDPLAYER_CAL_STEPS)
+        self._capture_mode = True
+        self._cap_start = None
+        self._cap_rect = None
+        self._canvas.config(cursor="crosshair")
+        self._canvas.unbind("<ButtonPress-1>")
+        self._canvas.unbind("<B1-Motion>")
+        self._canvas.unbind("<ButtonRelease-1>")
+        self._canvas.bind("<ButtonPress-1>", self._on_cap_press)
+        self._canvas.bind("<B1-Motion>", self._on_cap_drag)
+        self._canvas.bind("<ButtonRelease-1>", self._on_ldp_cal_release)
+        self._status_var.set(f"[{step}/{total}] {instruction}")
+
+    def _on_ldp_cal_release(self, event):
+        if self._cap_start is None:
+            return
+        cx1, cy1 = self._cap_start
+        cx2, cy2 = event.x, event.y
+        ix1 = int((min(cx1, cx2) - self._display_ox) / self._display_scale)
+        iy1 = int((min(cy1, cy2) - self._display_oy) / self._display_scale)
+        ix2 = int((max(cx1, cx2) - self._display_ox) / self._display_scale)
+        iy2 = int((max(cy1, cy2) - self._display_oy) / self._display_scale)
+        ss = self.tool.screenshot
+        ih, iw = ss.shape[:2]
+        ix1 = max(0, min(iw, ix1))
+        iy1 = max(0, min(ih, iy1))
+        ix2 = max(0, min(iw, ix2))
+        iy2 = max(0, min(ih, iy2))
+        if self._cap_rect:
+            self._canvas.delete(self._cap_rect)
+            self._cap_rect = None
+        self._cap_start = None
+        if ix2 - ix1 < 3 or iy2 - iy1 < 3:
+            self._status_var.set("Too small — try again")
+            return
+        gx, gy, gw, gh = self.tool.vision.get_game_rect(ss)
+        key = self._LDPLAYER_CAL_STEPS[self._ldp_cal_index][0]
+        ratios = {
+            "x1": round((ix1 - gx) / max(1, gw), 4),
+            "y1": round((iy1 - gy) / max(1, gh), 4),
+            "x2": round((ix2 - gx) / max(1, gw), 4),
+            "y2": round((iy2 - gy) / max(1, gh), 4),
+        }
+        self._ldp_cal_data[key] = ratios
+        self._canvas.create_rectangle(
+            cx1 if cx1 < event.x else event.x,
+            cy1 if cy1 < event.y else event.y,
+            event.x if cx1 < event.x else cx1,
+            event.y if cy1 < event.y else cy1,
+            outline="#00FF00", width=2, tags="ldp_cal_done"
+        )
+        self.root.after(100, self._ldp_cal_advance)
+
+    def _ldp_cal_advance(self):
+        self._ldp_cal_index += 1
+        self._begin_ldp_cal_step()
+
+    def _cancel_ldplayer_calibration(self, event=None):
+        self._end_capture_mode()
+        self._ldp_cal_active = False
+        self._canvas.delete("ldp_cal_done")
+        self.root.unbind("<Escape>")
+        done = self._ldp_cal_index
+        self._status_var.set(f"LDPlayer calibration cancelled ({done} of {len(self._LDPLAYER_CAL_STEPS)} done)")
+
+    def _finish_ldplayer_calibration(self):
+        self._end_capture_mode()
+        self._ldp_cal_active = False
+        self._canvas.delete("ldp_cal_done")
+        self.root.unbind("<Escape>")
+
+        ldp_path = Path("config", "calibration_ldplayer.json")
+        existing = {}
+        if ldp_path.exists():
+            try:
+                with open(ldp_path, encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                pass
+        existing.update(self._ldp_cal_data)
+        with open(ldp_path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
+        self.tool.vision._calibration.update(self._ldp_cal_data)
+
+        base_path = Path("config", "calibration.json")
+        base_cal = {}
+        if base_path.exists():
+            try:
+                with open(base_path, encoding="utf-8") as f:
+                    base_cal = json.load(f)
+            except Exception:
+                pass
+
+        gp_rect = base_cal.get("game_rect", {})
+        ldp_rect = base_cal.get("ldplayer_game_rect", {})
+        x_ratio = None
+        x_offset = None
+        if gp_rect and ldp_rect and "x1" in gp_rect and "x1" in ldp_rect:
+            gp_w = gp_rect["x2"] - gp_rect["x1"]
+            ldp_w = ldp_rect["x2"] - ldp_rect["x1"]
+            if ldp_w > 0 and gp_w > 0:
+                x_ratio = gp_w / ldp_w
+                x_offset = (1.0 - x_ratio) / 2.0
+
+        lines = [f"LDPlayer calibration saved ({len(self._ldp_cal_data)} regions):\n"]
+        errors = []
+        for key, ldp_r in sorted(self._ldp_cal_data.items()):
+            base_r = base_cal.get(key)
+            line = f"  {key}: x1={ldp_r['x1']:.4f} y1={ldp_r['y1']:.4f} x2={ldp_r['x2']:.4f} y2={ldp_r['y2']:.4f}"
+            if base_r and "x1" in base_r and x_ratio is not None:
+                pred_x1 = base_r["x1"] * x_ratio + x_offset
+                pred_x2 = base_r["x2"] * x_ratio + x_offset
+                err_x1 = abs(ldp_r["x1"] - pred_x1)
+                err_x2 = abs(ldp_r["x2"] - pred_x2)
+                err_y1 = abs(ldp_r["y1"] - base_r["y1"])
+                err_y2 = abs(ldp_r["y2"] - base_r["y2"])
+                errors.extend([err_x1, err_x2])
+                line += (
+                    f"\n    predicted: x1={pred_x1:.4f} x2={pred_x2:.4f} "
+                    f"| err: x1={err_x1:.4f} x2={err_x2:.4f} y1={err_y1:.4f} y2={err_y2:.4f}"
+                )
+            elif base_r is None:
+                line += "  [no GP baseline]"
+            lines.append(line)
+
+        if x_ratio is not None:
+            lines.append(f"\n{'='*60}")
+            lines.append(f"Auto-transform formula:")
+            lines.append(f"  ldp_x = gp_x * {x_ratio:.4f} + {x_offset:.4f}")
+            lines.append(f"  ldp_y = gp_y (unchanged)")
+            lines.append(f"  (GP game={gp_rect['x2']-gp_rect['x1']:.4f}w  LDPlayer game={ldp_rect['x2']-ldp_rect['x1']:.4f}w)")
+            if errors:
+                avg_err = sum(errors) / len(errors)
+                max_err = max(errors)
+                lines.append(f"  Prediction accuracy: avg_err={avg_err:.4f} max_err={max_err:.4f}")
+            remaining = set(base_cal.keys()) - set(self._ldp_cal_data.keys()) - {"game_rect", "ldplayer_game_rect"}
+            remaining_rects = [k for k in remaining if isinstance(base_cal.get(k), dict) and ("x1" in base_cal[k] or "x" in base_cal[k])]
+            lines.append(f"  {len(remaining_rects)} remaining regions will be auto-transformed at load time")
+            lines.append(f"  {len(self._ldp_cal_data)} regions use manual calibration (overrides)")
+
+        report = "\n".join(lines)
+        print(report)
+
+        report_win = tk.Toplevel(self.root)
+        report_win.title("LDPlayer Calibration Report")
+        report_win.geometry("700x500")
+        report_win.configure(bg=self.BG)
+        text = tk.Text(report_win, wrap=tk.WORD, bg=self.BG, fg=self.FG,
+                       font=("Consolas", 10), borderwidth=0, highlightthickness=0)
+        scroll = ttk.Scrollbar(report_win, command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        text.pack(fill=tk.BOTH, expand=True)
+        text.insert(tk.END, report)
+        text.configure(state=tk.DISABLED)
+
+        self._status_var.set(f"LDPlayer calibration done — {len(self._ldp_cal_data)} regions saved")
+
+        self.tool.vision._calibration = self.tool.vision._load_calibration()
+
+        if self.tool.screenshot is not None:
+            self._run_detection()
+
     def _start_region_calibration(self):
         if self.tool.screenshot is None:
             self._status_var.set("Take a screenshot first")
@@ -2216,7 +2421,7 @@ class VisualDebugGUI:
         region_keys = sorted(
             k for k, v in cal.items()
             if isinstance(v, dict) and ("x1" in v or "x" in v)
-            and k not in ("game_rect", "steam_game_rect")
+            and k not in ("game_rect", "steam_game_rect", "ldplayer_game_rect")
         )
         if not region_keys:
             self._status_var.set("No calibration regions found")
@@ -2292,17 +2497,18 @@ class VisualDebugGUI:
         self._end_capture_mode()
         self.root.unbind("<Escape>")
         platform = self._platform_var.get()
-        if platform == "steam":
-            steam_path = Path("config", "calibration_steam.json")
+        _OVR_FILES = {"steam": "calibration_steam.json", "ldplayer": "calibration_ldplayer.json"}
+        if platform in _OVR_FILES:
+            ovr_path = Path("config", _OVR_FILES[platform])
             existing = {}
-            if steam_path.exists():
+            if ovr_path.exists():
                 try:
-                    with open(steam_path, encoding="utf-8") as f:
+                    with open(ovr_path, encoding="utf-8") as f:
                         existing = json.load(f)
                 except Exception:
                     pass
             existing[key] = ratios
-            with open(steam_path, "w", encoding="utf-8") as f:
+            with open(ovr_path, "w", encoding="utf-8") as f:
                 json.dump(existing, f, indent=2, ensure_ascii=False)
         else:
             cal_path = Path("config", "calibration.json")
@@ -2402,7 +2608,8 @@ class VisualDebugGUI:
         }
 
         platform = self._platform_var.get()
-        cal_key = "steam_game_rect" if platform == "steam" else "game_rect"
+        _GAME_RECT_KEYS = {"steam": "steam_game_rect", "ldplayer": "ldplayer_game_rect"}
+        cal_key = _GAME_RECT_KEYS.get(platform, "game_rect")
 
         cal_path = Path("config", "calibration.json")
         cal_data = {}

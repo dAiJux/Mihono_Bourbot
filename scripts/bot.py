@@ -99,6 +99,7 @@ class MihonoBourbot:
         self.logger.info("=" * 60)
 
         self.turn_count = 0
+        self.decision.reset_caches()
         max_turns = 78
         overtime = False
 
@@ -160,10 +161,6 @@ class MihonoBourbot:
                     self.logger.info("Run finished — Complete Career reached")
                     break
 
-                if self.automation.should_check_skills(self.turn_count):
-                    self.logger.info("Skill check triggered")
-                    self.automation.execute_skill_check(self.turn_count)
-
                 if action == Action.SKIP:
                     skip_retries += 1
                     self.automation.advance_turn()
@@ -177,6 +174,10 @@ class MihonoBourbot:
                 else:
                     skip_retries = 0
 
+                if self.automation.should_check_skills(self.turn_count):
+                    self.logger.info("Skill check triggered")
+                    self.automation.execute_skill_check(self.turn_count)
+
                 turn_consumed = self.automation.execute_action(
                     action, details, self.event_database
                 )
@@ -189,10 +190,7 @@ class MihonoBourbot:
                     )
                     self.turn_count -= 1
 
-                time.sleep(random.uniform(
-                    self.config["automation_settings"]["action_delay_min"],
-                    self.config["automation_settings"]["action_delay_max"],
-                ))
+                time.sleep(random.uniform(0.2, 0.5))
 
             except Exception as e:
                 self.logger.error(f"Error during turn {self.turn_count}: {e}")

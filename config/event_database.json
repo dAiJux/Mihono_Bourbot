@@ -28364,6 +28364,7 @@
                     }
                 },
                 "Unexpected Side": {
+                    "preferred_choice": 2,
                     "choices": {
                         "1": {
                             "description": "Fail",

@@ -1,4 +1,5 @@
 import cv2
+import math
 import numpy as np
 from typing import Tuple, Optional, List
 
@@ -27,13 +28,23 @@ class DetectionMixin:
         if screenshot is None:
             screenshot = self.take_screenshot()
 
-        if self.find_template("recreation_popup", screenshot, 0.70):
-            return GameScreen.RECREATION
+        if self.find_template("recreation_popup", screenshot, 0.80):
+            if not self.find_template("btn_race", screenshot, 0.75):
+                return GameScreen.RECREATION
 
         strat_count = sum(1 for s in ["strategy_end", "strategy_late", "strategy_pace", "strategy_front"]
                           if self.find_template(s, screenshot, 0.80))
         if strat_count >= 2:
             return GameScreen.STRATEGY
+
+        has_btn_race = self.find_template("btn_race", screenshot, 0.80)
+        has_btn_race_launch = self.find_template("btn_race_launch", screenshot, 0.75) if has_btn_race else None
+
+        if has_btn_race and not has_btn_race_launch:
+            return GameScreen.RACE_SELECT
+
+        if self.find_template("btn_race_confirm", screenshot, 0.65):
+            return GameScreen.RACE_SELECT
 
         if self.find_template("buy_skill", screenshot, 0.82) or \
            self.find_template("learn_btn", screenshot, 0.72) or \
@@ -46,13 +57,6 @@ class DetectionMixin:
         if banner == "scheduled_race":
             return GameScreen.SCHEDULED_RACE_POPUP
 
-        if self.find_template("btn_race", screenshot, 0.80):
-            if not self.find_template("btn_race_launch", screenshot, 0.75):
-                return GameScreen.RACE_SELECT
-
-        if self.find_template("btn_race_confirm", screenshot, 0.65):
-            return GameScreen.RACE_SELECT
-
         for tpl, thr in [("btn_race_start", 0.70), ("btn_race_start_ura", 0.70)]:
             if self.find_template(tpl, screenshot, thr):
                 if self.find_template("race_view_results_on", screenshot, 0.70) or \
@@ -64,7 +68,7 @@ class DetectionMixin:
 
         main_found = 0
         for tpl in self.MAIN_SCREEN_BUTTONS:
-            if self.find_template(tpl, screenshot, 0.70):
+            if self.find_template(tpl, screenshot, 0.80):
                 main_found += 1
                 if main_found >= 2:
                     return GameScreen.MAIN
@@ -145,7 +149,11 @@ class DetectionMixin:
         pos, _ = self.find_template_conf(template_name, screenshot, threshold)
         return pos
 
+    _TRANSFORMED_PLATFORMS = {"ldplayer", "steam"}
+
     def find_template_conf(self, template_name: str, screenshot: np.ndarray = None, threshold: float = 0.8) -> Tuple[Optional[Tuple[int, int]], float]:
+        if threshold >= 0.78 and self.config.get("platform", "google_play") in self._TRANSFORMED_PLATFORMS:
+            threshold -= 0.05
         if screenshot is None:
             screenshot = self.take_screenshot()
         self._update_scale(screenshot)
@@ -186,6 +194,8 @@ class DetectionMixin:
             res = cv2.matchTemplate(s_img, t_img, cv2.TM_CCOEFF_NORMED)
 
         _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        if not math.isfinite(max_val):
+            max_val = 0.0
         if max_val >= threshold:
             if not self._check_brightness_gate(template_name, search_img, max_loc, templ.shape):
                 return None, max_val
@@ -214,6 +224,8 @@ class DetectionMixin:
             else:
                 res = cv2.matchTemplate(s_img, scaled, cv2.TM_CCOEFF_NORMED)
             _, mv, _, ml = cv2.minMaxLoc(res)
+            if not math.isfinite(mv):
+                continue
             if mv > best_val:
                 best_val = mv
                 best_loc = ml

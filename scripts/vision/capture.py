@@ -196,6 +196,42 @@ class CaptureMixin:
                             new_val["x"] = round(val["x"] * x_ratio + x_offset, 4)
                             cal[key] = new_val
             cal.update(steam_overrides)
+        elif platform == "ldplayer":
+            ldp_overrides = {}
+            ldp_path = Path("config", "calibration_ldplayer.json")
+            if ldp_path.exists():
+                try:
+                    with open(ldp_path, encoding="utf-8") as f:
+                        ldp_overrides = json.load(f)
+                except Exception:
+                    pass
+            gp_rect = cal.get("game_rect", {})
+            ldp_rect = cal.get("ldplayer_game_rect", {})
+            if gp_rect and ldp_rect and "x1" in gp_rect and "x1" in ldp_rect:
+                gp_w = gp_rect["x2"] - gp_rect["x1"]
+                ldp_w = ldp_rect["x2"] - ldp_rect["x1"]
+                if ldp_w > 0 and gp_w > 0 and abs(ldp_w - gp_w) / gp_w > 0.02:
+                    x_ratio = gp_w / ldp_w
+                    x_offset = (1.0 - x_ratio) / 2.0
+                    skip = {"game_rect", "ldplayer_game_rect"}
+                    for key in list(cal.keys()):
+                        if key in skip or key in ldp_overrides:
+                            continue
+                        val = cal[key]
+                        if not isinstance(val, dict):
+                            continue
+                        if "x1" in val and "x2" in val:
+                            cal[key] = {
+                                "x1": round(val["x1"] * x_ratio + x_offset, 4),
+                                "y1": val.get("y1", 0),
+                                "x2": round(val["x2"] * x_ratio + x_offset, 4),
+                                "y2": val.get("y2", 0),
+                            }
+                        elif "x" in val:
+                            new_val = dict(val)
+                            new_val["x"] = round(val["x"] * x_ratio + x_offset, 4)
+                            cal[key] = new_val
+            cal.update(ldp_overrides)
         return cal
 
     def _aspect_x_factor(self, gw: int, gh: int) -> float:
@@ -248,6 +284,15 @@ class CaptureMixin:
             if anchor_result is not None:
                 return anchor_result
             return self._auto_detect_game_rect(screenshot)
+
+        if platform == "ldplayer":
+            ldp_rect = self._calibration.get("ldplayer_game_rect")
+            if ldp_rect:
+                gx = int(w * ldp_rect["x1"])
+                gy = int(h * ldp_rect["y1"])
+                gw = int(w * ldp_rect["x2"]) - gx
+                gh = int(h * ldp_rect["y2"]) - gy
+                return (gx, gy, max(1, gw), max(1, gh))
 
         if w <= int(game_w * 1.05):
             return (max(0, (w - game_w) // 2), 0, game_w, h)

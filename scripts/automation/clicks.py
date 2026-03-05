@@ -35,6 +35,7 @@ class ClickMixin:
             self.logger.error("Game window not found")
             return
 
+        x, y = int(x), int(y)
         client_x = x - self.vision._client_offset_x
         client_y = y - self.vision._client_offset_y
 
@@ -81,6 +82,10 @@ class ClickMixin:
         jitter = random.uniform(1.0, 2.0)
         total = base_seconds * jitter / 2.0 * multiplier
         self._interruptible_sleep(total)
+
+    def _post_action_delay(self):
+        multiplier = self.config.get("automation_settings", {}).get("sleep_time_multiplier", 1.0)
+        self._interruptible_sleep(0.30 * multiplier)
 
     def wait_random(self):
         time.sleep(random.uniform(*self.action_delay))

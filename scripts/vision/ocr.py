@@ -38,6 +38,13 @@ def _ocr_text_raw(img_np: np.ndarray) -> str:
     return ' '.join(r[1] for r in results)
 
 
+def _ocr_text_horizontal(img_np: np.ndarray) -> str:
+    reader = _get_reader()
+    results = reader.readtext(img_np, text_threshold=0.3)
+    results.sort(key=lambda r: r[0][0][0])
+    return ' '.join(r[1] for r in results)
+
+
 class OcrMixin:
 
     _MONTH_MAP = {
@@ -91,25 +98,36 @@ class OcrMixin:
             rw, rh = int(gw * rwr * xf), int(gh * rhr)
         roi = screenshot[y:y+rh, x:x+rw]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY_INV)
         scale = 3
-        big = cv2.resize(thresh, (thresh.shape[1] * scale, thresh.shape[0] * scale),
-                         interpolation=cv2.INTER_CUBIC)
         try:
             reader = _get_reader()
-            raw = reader.readtext(big, detail=1)
-            for (_, text, conf) in raw:
-                if conf >= 0.3 and "max" in text.lower():
-                    return 1200
-            digits = _ocr_digits(big).strip()
-            for length in range(min(4, len(digits)), 0, -1):
-                s = digits[:length]
-                if s[0] == "0" and length > 1:
-                    continue
-                v = int(s)
-                if 1 <= v <= 1200:
-                    return v
-            return 0
+            best_val = 0
+            best_conf = 0.0
+            for thresh_val in (160, 140, 200):
+                _, thresh = cv2.threshold(gray, thresh_val, 255, cv2.THRESH_BINARY_INV)
+                big = cv2.resize(thresh, (thresh.shape[1] * scale, thresh.shape[0] * scale),
+                                 interpolation=cv2.INTER_CUBIC)
+                raw = reader.readtext(big, detail=1, allowlist='0123456789')
+                for (_, text, conf) in raw:
+                    digits = ''.join(c for c in text if c.isdigit())
+                    if not digits:
+                        continue
+                    for length in range(min(4, len(digits)), 0, -1):
+                        s = digits[:length]
+                        if s[0] == "0" and length > 1:
+                            continue
+                        v = int(s)
+                        if 1 <= v <= 1200 and conf > best_conf:
+                            best_val = v
+                            best_conf = conf
+                            break
+                if best_conf >= 0.95:
+                    return best_val
+                raw_full = reader.readtext(big, detail=1)
+                for (_, text, conf) in raw_full:
+                    if conf >= 0.3 and "max" in text.lower():
+                        return 1200
+            return best_val
         except Exception:
             return 0
 
@@ -214,8 +232,8 @@ class OcrMixin:
             gray = cv2.cvtColor(title_roi, cv2.COLOR_BGR2GRAY)
             _, thresh_light = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
             _, thresh_dark = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-            text_light = _ocr_text_raw(thresh_light).strip()
-            text_dark = _ocr_text_raw(thresh_dark).strip()
+            text_light = _ocr_text_horizontal(thresh_light).strip()
+            text_dark = _ocr_text_horizontal(thresh_dark).strip()
             title = text_light if len(text_light) > len(text_dark) else text_dark
             self.logger.debug(f"Event title OCR: '{title}'")
             return title
@@ -370,121 +388,10 @@ class OcrMixin:
         return texts
 
     def read_stats(self, screenshot: np.ndarray) -> Optional[Dict[str, int]]:
-        gx, gy, gw, gh = self.get_game_rect(screenshot)
-        is_steam = getattr(self, 'config', {}).get("platform", "google_play") == "steam"
-
-        dbg_dir = Path("logs/debug/stats")
-        dbg_dir.mkdir(parents=True, exist_ok=True)
-
-        stats: Dict[str, int] = {}
-        try:
-            for name in self.STAT_NAMES:
-                cal = self._calibration.get(f"stat_{name}")
-                if cal and "x1" in cal:
-                    sx1 = max(0, gx + int(gw * cal["x1"]))
-                    sx2 = min(screenshot.shape[1], gx + int(gw * cal["x2"]))
-                    sy1 = gy + int(gh * 0.665)
-                    sy2 = gy + int(gh * 0.690)
-                else:
-                    frac_x1, frac_x2 = self._STAT_COLUMNS.get(name, (0, 0))
-                    sx1 = gx + int(gw * frac_x1)
-                    sx2 = gx + int(gw * frac_x2)
-                    sy1 = gy + int(gh * 0.665)
-                    sy2 = gy + int(gh * 0.690)
-
-                if is_steam:
-                    pad_x = max(3, int((sx2 - sx1) * 0.06))
-                    sx1 = max(0, sx1 - pad_x)
-                    sx2 = min(screenshot.shape[1], sx2 + pad_x)
-
-                roi = screenshot[sy1:sy2, sx1:sx2]
-                if roi.size == 0:
-                    continue
-
-                cv2.imwrite(str(dbg_dir / f"{name}_roi.png"), roi)
-
-                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                col_w = sx2 - sx1
-                right_guard = max(5, int(col_w * 0.15))
-
-                thresholds = (130, 140, 150, 160, 170, 180) if is_steam else (160, 170, 180)
-                left_pcts = (0, 2, 5) if is_steam else (0, 5, 10)
-                steam_scale = 5
-
-                candidates: list = []
-                for thresh in thresholds:
-                    _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
-                    for left_pct in left_pcts:
-                        left_m = max(1, int(col_w * left_pct / 100))
-                        x_start = left_m
-                        x_end = binary.shape[1] - right_guard
-                        if x_end <= x_start:
-                            continue
-                        strip = binary[:, x_start:x_end]
-                        if strip.size == 0:
-                            continue
-                        scale = steam_scale if is_steam else 4
-                        big = cv2.resize(strip,
-                                         (strip.shape[1] * scale, strip.shape[0] * scale),
-                                         interpolation=cv2.INTER_CUBIC)
-                        big = cv2.copyMakeBorder(big, 15, 15, 20, 20,
-                                                 cv2.BORDER_CONSTANT, value=0)
-                        val = self._ocr_stat_column(big)
-                        if val is not None:
-                            candidates.append(val)
-
-                if candidates:
-                    best = Counter(candidates).most_common(1)[0][0]
-                    stats[name] = best
-                else:
-                    self.logger.debug(f"read_stats: {name} unreadable")
-
-            if len(stats) < 3:
-                return None
-
-            self.logger.info(
-                "Stats: " + " / ".join(
-                    f"{n}={stats.get(n, '?')}" for n in self.STAT_NAMES))
-            return stats
-        except Exception as e:
-            self.logger.warning(f"read_stats error: {e}")
+        stats = self.read_all_stats(screenshot)
+        if not stats or len([v for v in stats.values() if v > 0]) < 3:
             return None
-
-    @staticmethod
-    def _ocr_stat_column(img: np.ndarray) -> Optional[int]:
-        reader = _get_reader()
-        candidates: list = []
-
-        try:
-            raw = reader.readtext(img, detail=1)
-            for (_, text, conf) in raw:
-                if conf >= 0.3 and "max" in text.lower():
-                    candidates.append(1200)
-        except Exception:
-            pass
-
-        for min_conf in (0.6, 0.45, 0.3):
-            try:
-                results = reader.readtext(img, detail=1, allowlist="0123456789")
-                if not results:
-                    continue
-                results_filtered = [(text, conf) for (_, text, conf) in results if conf >= min_conf]
-                if not results_filtered:
-                    continue
-                best_text, _ = max(results_filtered, key=lambda x: x[1])
-                digits = best_text.strip()
-                if not digits:
-                    continue
-                for length in range(min(4, len(digits)), 0, -1):
-                    s = digits[:length]
-                    if s[0] == "0" and length > 1:
-                        continue
-                    v = int(s)
-                    if 1 <= v <= 1200:
-                        candidates.append(v)
-                        break
-            except Exception:
-                continue
-        if not candidates:
-            return None
-        return Counter(candidates).most_common(1)[0][0]
+        self.logger.info(
+            "Stats: " + " / ".join(
+                f"{n}={stats.get(n, '?')}" for n in self.STAT_NAMES))
+        return stats

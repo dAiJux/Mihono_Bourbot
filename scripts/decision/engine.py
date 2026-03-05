@@ -18,26 +18,56 @@ class EngineMixin:
     END_OF_RUN_BONUS = 63
     STAT_CAP = 1200
 
+    def reset_caches(self):
+        self._date_cache = None
+        self._date_cache_counter = 0
+        self._stats_cache = None
+        self._stats_cache_counter = 0
+        self._skip_count = 0
+
     def decide_action(self) -> Tuple[Action, Optional[str]]:
         screenshot = self.vision.take_screenshot()
 
-        banner = self.vision.identify_popup_banner(screenshot)
-        if banner == "insufficient_fans":
-            self.logger.info("Insufficient Fans popup detected — SKIP to let advance_turn handle it")
-            return (Action.SKIP, None)
-        if banner == "scheduled_race":
-            self.logger.info("Scheduled Race popup banner detected — must race NOW")
-            return (Action.RACE, "raceday")
+        skip_count = getattr(self, '_skip_count', 0)
+        if skip_count >= 3:
+            self.logger.warning(f"SKIP repeated {skip_count}x — bypassing banner detection, forcing full detect_screen")
+            screen = self.vision.detect_screen(screenshot)
+            if screen == GameScreen.INSUFFICIENT_FANS:
+                self.logger.info("Full detect_screen confirms INSUFFICIENT_FANS — SKIP")
+                self._skip_count = skip_count + 1
+                return (Action.SKIP, None)
+            if screen == GameScreen.SCHEDULED_RACE_POPUP:
+                self.logger.info("Full detect_screen confirms SCHEDULED_RACE_POPUP — RACE")
+                self._skip_count = 0
+                return (Action.RACE, "raceday")
+            self.logger.info(f"Full detect_screen override: {screen.value}")
+            if screen not in (GameScreen.MAIN, GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNITY, GameScreen.CAREER_COMPLETE):
+                self._skip_count = skip_count + 1
+                return (Action.SKIP, None)
+        else:
+            banner = self.vision.identify_popup_banner(screenshot)
+            if banner == "insufficient_fans":
+                self.logger.info("Insufficient Fans popup detected — SKIP to let advance_turn handle it")
+                self._skip_count = skip_count + 1
+                return (Action.SKIP, None)
+            if banner == "scheduled_race":
+                self._skip_count = 0
+                self.logger.info("Scheduled Race popup banner detected — must race NOW")
+                return (Action.RACE, "raceday")
 
-        race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
-        if race_popup:
-            self.logger.info("Scheduled race popup detected (btn_race) — must race NOW")
-            return (Action.RACE, "raceday")
+            race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
+            if race_popup:
+                self._skip_count = 0
+                self.logger.info("Scheduled race popup detected (btn_race) — must race NOW")
+                return (Action.RACE, "raceday")
 
-        screen = self.vision.detect_screen(screenshot)
-        if screen not in (GameScreen.MAIN, GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNITY, GameScreen.CAREER_COMPLETE):
-            self.logger.info(f"Not on main screen ({screen.value}) — returning SKIP to let advance_turn handle it")
-            return (Action.SKIP, None)
+            screen = self._fast_detect_screen(screenshot)
+            if screen not in (GameScreen.MAIN, GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNITY, GameScreen.CAREER_COMPLETE):
+                self.logger.info(f"Not on main screen ({screen.value}) — returning SKIP to let advance_turn handle it")
+                self._skip_count = skip_count + 1
+                return (Action.SKIP, None)
+
+        self._skip_count = 0
 
         if self.vision.is_at_career_complete(screenshot):
             self.logger.info("Complete Career screen detected — stopping bot")
@@ -55,31 +85,9 @@ class EngineMixin:
             else:
                 self.logger.info("Unity Cup detected but scenario is URA — skipping")
 
-        stats = self.vision.read_all_stats(screenshot)
         energy = self.vision.read_energy_percentage(screenshot)
         mood = self.vision.detect_mood(screenshot)
         has_injury = self.vision.detect_injury(screenshot)
-        friendship = self.vision.count_friendship_icons(screenshot)
-
-        date_info = self.vision.read_game_date(screenshot)
-        is_summer = self.vision.is_summer_period(date_info)
-        is_junior = not date_info or date_info.get("year") == "junior"
-        is_finale = date_info is not None and date_info.get("year") == "finale"
-        current_turn = date_info.get("turn", 0) if date_info else 0
-        is_pre_summer = date_info is not None and current_turn < 37
-        date_str = (
-            f"{date_info['year'].title()} {date_info['half'].title()} "
-            f"{date_info['month'].title()} (T{current_turn})"
-            if date_info else "unknown"
-        )
-
-
-        self.logger.info(
-            f"State — Energy: {energy:.0f}%, Mood: {mood}, Injury: {has_injury}, "
-            f"Friendship partial: {friendship['partial']}, orange: {friendship.get('orange', 0)}, "
-            f"maxed: {friendship['max']}, "
-            f"Date: {date_str}, Summer: {is_summer}, PreSummer: {is_pre_summer}, Finale: {is_finale}"
-        )
 
         if self.vision.detect_target_race(screenshot):
             if not has_injury:
@@ -100,8 +108,31 @@ class EngineMixin:
             return (Action.INFIRMARY, None)
 
         if energy < self.energy_low:
+            date_info = self._get_cached_date(screenshot)
+            is_summer = self.vision.is_summer_period(date_info)
             self.logger.info(f"Energy critically low ({energy:.0f}% < {self.energy_low}%) -> hard REST")
             return (Action.REST, "summer" if is_summer else None)
+
+        date_info = self._get_cached_date(screenshot)
+        is_summer = self.vision.is_summer_period(date_info)
+        is_junior = not date_info or date_info.get("year") == "junior"
+        is_finale = date_info is not None and date_info.get("year") == "finale"
+        current_turn = date_info.get("turn", 0) if date_info else 0
+        is_pre_summer = date_info is not None and current_turn < 37
+        date_str = (
+            f"{date_info['year'].title()} {date_info['half'].title()} "
+            f"{date_info['month'].title()} (T{current_turn})"
+            if date_info else "unknown"
+        )
+
+        friendship = self.vision.count_friendship_icons(screenshot)
+
+        self.logger.info(
+            f"State — Energy: {energy:.0f}%, Mood: {mood}, Injury: {has_injury}, "
+            f"Friendship partial: {friendship['partial']}, orange: {friendship.get('orange', 0)}, "
+            f"maxed: {friendship['max']}, "
+            f"Date: {date_str}, Summer: {is_summer}, PreSummer: {is_pre_summer}, Finale: {is_finale}"
+        )
 
         if mood.lower() in ("awful", "bad"):
             if is_summer:
@@ -117,12 +148,88 @@ class EngineMixin:
             self.logger.info(f"Mood '{mood}' not Great in Classic/Senior -> RECREATION")
             return (Action.RECREATION, None)
 
-        target_stat = self._determine_training_stat(stats, friendship)
+        target_stat = self.stat_priority[0]
+        cached_stats = self._get_cached_stats(screenshot)
         self.logger.info(
             f"Going to training to evaluate scores "
-            f"(suggested: {target_stat or 'default'}, energy={energy:.0f}%, mood={mood})"
+            f"(suggested: {target_stat}, energy={energy:.0f}%, mood={mood})"
         )
-        return (Action.TRAINING, {"stat": target_stat, "energy": energy, "mood": mood})
+        return (Action.TRAINING, {"stat": target_stat, "energy": energy, "mood": mood, "stats": cached_stats})
+
+    def _fast_detect_screen(self, screenshot):
+        main_found = sum(
+            1 for tpl in self.vision.MAIN_SCREEN_BUTTONS[:3]
+            if self.vision.find_template(tpl, screenshot, 0.80)
+        )
+        if main_found >= 2:
+            close_pos = self.vision.find_template("btn_close", screenshot, 0.80)
+            if close_pos:
+                return self.vision.detect_screen(screenshot)
+            return GameScreen.MAIN
+        return self.vision.detect_screen(screenshot)
+
+    def _get_cached_date(self, screenshot):
+        date_info = self.vision.read_game_date(screenshot)
+        if date_info is not None:
+            self._date_cache = date_info
+            return date_info
+        return getattr(self, '_date_cache', None)
+
+    def _get_cached_stats(self, screenshot):
+        counter = getattr(self, '_stats_cache_counter', 0) + 1
+        self._stats_cache_counter = counter
+        cached = getattr(self, '_stats_cache', None)
+        date_info = getattr(self, '_date_cache', None)
+        is_senior = date_info is not None and date_info.get("year") in ("senior", "finale")
+        interval = 4 if is_senior else 8
+        if cached is not None and counter % interval != 1:
+            self.logger.info(
+                f"Stats (cached #{counter}): "
+                + ", ".join(f"{k}={v}" for k, v in cached.items())
+            )
+            return cached
+        stats = self.vision.read_all_stats(screenshot)
+        all_zero = all(v == 0 for v in stats.values())
+        if not all_zero:
+            self._stats_cache = stats
+            self.logger.info(
+                f"Stats (fresh OCR #{counter}): "
+                + ", ".join(f"{k}={v}" for k, v in stats.items())
+            )
+            return stats
+        self.logger.warning(
+            f"Stats OCR returned all zeros (#{counter}), using previous cache: "
+            + (", ".join(f"{k}={v}" for k, v in cached.items()) if cached else "None")
+        )
+        return cached
+
+    def _stat_target_adjustment(self, stat, current_stats, is_senior):
+        if current_stats is None:
+            return 0
+        tolerance = self._get_stat_tolerance()
+        current = current_stats.get(stat, 0)
+        target = self.targets.get(stat, 0)
+        if current >= self.STAT_CAP:
+            return -50
+        all_met = all(
+            current_stats.get(s, 0) >= self.targets.get(s, 0) - tolerance
+            for s in self.stat_priority
+            if self.targets.get(s, 0) > 0
+        )
+        if all_met:
+            return 0
+        if target > 0 and current >= target:
+            return -8
+        if target > 0 and current >= target - tolerance:
+            return -3
+        if is_senior and target > 0 and current < target:
+            deficit_ratio = (target - current) / target
+            if deficit_ratio > 0.3:
+                return 10
+            elif deficit_ratio > 0.15:
+                return 5
+            return 2
+        return 0
 
     def score_training_slots(self, screenshot, is_pre_summer: bool = False) -> Dict[str, Dict]:
         gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
@@ -167,6 +274,7 @@ class EngineMixin:
     def score_single_training(
         self, stat: str, screenshot, is_pre_summer: bool = False,
         current_stats: Optional[Dict[str, int]] = None,
+        is_senior: bool = False,
     ) -> Dict:
         friendship_pts = 9 if is_pre_summer else 10
 
@@ -211,12 +319,14 @@ class EngineMixin:
             else:
                 secondary_bonus += contrib_weight * prio_w
 
-        score = base_score + secondary_bonus * 3
+        stat_adj = self._stat_target_adjustment(stat, current_stats, is_senior)
+        score = base_score + secondary_bonus * 3 + stat_adj
 
+        adj_str = f" adj={stat_adj:+d}" if stat_adj != 0 else ""
         self.logger.info(
             f"  {stat}: R={r} B={b} W={w} "
             f"F_partial={partial_count} F_orange+={orange_plus_count} F_pal_orange={pal_orange_count} "
-            f"secondary={secondary_bonus:.1f} → {score:.0f}pts"
+            f"secondary={secondary_bonus:.1f}{adj_str} → {score:.0f}pts"
         )
 
         return {

@@ -173,11 +173,29 @@ class EventMixin:
         self.click_with_offset(*choices[idx])
         self.wait(1.0)
 
-        if self.vision.find_template("btn_confirm"):
-            if self.vision.is_at_career_complete():
+        screenshot = self.vision.take_screenshot()
+        event_type = self.vision.detect_event_type(screenshot)
+        if event_type:
+            gx2, gy2, gw2, gh2 = self.vision.get_game_rect(screenshot)
+            ec2 = self.vision._calibration.get("event_choices", {})
+            cy_min2 = gy2 + int(gh2 * ec2.get("y1", 0.35))
+            cy_max2 = gy2 + int(gh2 * ec2.get("y2", 0.85))
+            sub_raw = self.vision.find_all_template("event_choice", screenshot, threshold=0.75, min_distance=30)
+            sub_choices = [
+                c for c in sub_raw
+                if gx2 <= c[0] <= gx2 + gw2 and cy_min2 <= c[1] <= cy_max2
+            ]
+            sub_choices.sort(key=lambda pos: pos[1])
+            if sub_choices:
+                self.logger.info(f"Sub-choices detected ({len(sub_choices)}) — clicking first to confirm")
+                self.click_with_offset(*sub_choices[0])
+                self.wait(1.0)
+
+        if self.vision.find_template("btn_confirm", screenshot):
+            if self.vision.is_at_career_complete(screenshot):
                 self.logger.critical("CAREER COMPLETE detected — refusing to click confirm!")
                 return False
-            self.click_button("btn_confirm")
+            self.click_button("btn_confirm", screenshot)
             self.wait(1.0)
         return True
 

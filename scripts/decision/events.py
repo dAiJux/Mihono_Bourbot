@@ -115,6 +115,13 @@ class EventDecisionMixin:
             if len(choices) == 1 and "0" in choices:
                 self.logger.info(f"Automatic event: {matched_source}")
                 return 1
+            preferred = matched_data.get("preferred_choice")
+            if preferred:
+                pct = int(match_ratio * 100)
+                self.logger.info(
+                    f"Matched {matched_source} ({pct}%) -> Choice {preferred} (preferred)"
+                )
+                return int(preferred)
             best_num = self._score_event_choices(choices, screenshot)
             pct = int(match_ratio * 100)
             self.logger.info(

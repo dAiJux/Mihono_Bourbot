@@ -155,7 +155,35 @@ class NavigationMixin:
                 self.logger.critical("CAREER COMPLETE detected in advance_turn — STOPPING IMMEDIATELY")
                 return
 
-            screen = self.vision.detect_screen(screenshot)
+            main_fast = sum(
+                1 for tpl in self.vision.MAIN_SCREEN_BUTTONS[:3]
+                if self.vision.find_template(tpl, screenshot, 0.80)
+            )
+            if main_fast >= 2:
+                banner = self.vision.identify_popup_banner(screenshot)
+                if banner == "insufficient_fans":
+                    screen = GameScreen.INSUFFICIENT_FANS
+                elif banner == "scheduled_race":
+                    screen = GameScreen.SCHEDULED_RACE_POPUP
+                else:
+                    close_pos = self.vision.find_template("btn_close", screenshot, 0.80)
+                    if close_pos:
+                        has_event_win = any(
+                            self.vision.find_template(ew, screenshot, 0.82)
+                            for ew in ["event_scenario_window", "event_trainee_window", "event_support_window"]
+                        )
+                        if has_event_win:
+                            pass
+                        else:
+                            self.logger.info("Popup with Close button over MAIN screen — dismissing before proceeding")
+                            self.click_with_offset(*close_pos)
+                            self.wait(2.0)
+                            continue
+                    else:
+                        break
+
+            if not main_fast >= 2 or banner is None:
+                screen = self.vision.detect_screen(screenshot)
 
             if screen == GameScreen.MAIN:
                 close_pos = self.vision.find_template("btn_close", screenshot, 0.80)
@@ -209,8 +237,8 @@ class NavigationMixin:
                         center_x = gx + gw // 2
                         race_x = center_x + (center_x - cancel_pos[0])
                         self.click_with_offset(race_x, cancel_pos[1])
-                self.wait(1.0)
-                self._run_race()
+                self.wait(1.5)
+                self._execute_scheduled_race()
                 idle_count = 0
                 continue
 
@@ -244,6 +272,8 @@ class NavigationMixin:
                             insuf_pos[1] + int(gh * 0.30),
                         )
                 self.wait(1.0)
+                if force:
+                    self._execute_scheduled_race()
                 idle_count = 0
                 continue
 
@@ -272,8 +302,8 @@ class NavigationMixin:
                     self.logger.info("Race screen corrected to Race Select — handling selection")
                     self._handle_race_selection(screenshot)
                 else:
-                    self.logger.info("Race screen detected in advance_turn — running race")
-                    self._run_race()
+                    self.logger.info("Race prep screen detected in advance_turn — running race")
+                    self._run_race_via_view_results(allow_try_again=True)
                 idle_count = 0
                 continue
 

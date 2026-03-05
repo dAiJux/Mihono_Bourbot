@@ -375,10 +375,9 @@ class SkillsMixin:
         hwnd = self.vision.game_hwnd
         if hwnd is None or not win32gui.IsWindow(hwnd):
             return
-        old_pos = None
+        x, from_y, to_y = int(x), int(from_y), int(to_y)
         if self._is_steam():
             origin = win32gui.ClientToScreen(hwnd, (0, 0))
-            old_pos = win32gui.GetCursorPos()
             win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
             win32gui.SendMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
             ctypes.windll.user32.SetCursorPos(origin[0] + x, origin[1] + from_y)
@@ -396,8 +395,6 @@ class SkillsMixin:
             time.sleep(0.04)
         lp_end = win32api.MAKELONG(x, to_y)
         win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp_end)
-        if old_pos is not None:
-            ctypes.windll.user32.SetCursorPos(old_pos[0], old_pos[1])
         time.sleep(0.3)
 
     def _close_skill_screen(self):
