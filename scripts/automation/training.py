@@ -298,12 +298,14 @@ class TrainingMixin:
         if not self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7):
             return
         self.logger.info("Claw Machine mini-game detected!")
+        if self._interruptible_sleep(5.0):
+            return
         for round_num in range(1, 4):
             if self._check_stopped():
                 return
             self.logger.info(f"Claw Machine round {round_num}/3")
             pos = None
-            for attempt in range(5):
+            for attempt in range(8):
                 screenshot = self.vision.take_screenshot()
                 pos = self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7)
                 if pos:
@@ -313,26 +315,50 @@ class TrainingMixin:
             if not pos:
                 self.logger.warning(f"Claw machine button not found for round {round_num}")
                 continue
-            client_x = pos[0] - self.vision._client_offset_x
-            client_y = pos[1] - self.vision._client_offset_y
+            self._claw_hold_button(pos)
+            self.logger.info(f"Claw Machine round {round_num} — held 2 seconds")
+            if self._interruptible_sleep(5.0):
+                return
+        self.logger.info("Claw Machine done — waiting for OK button")
+        self.wait_and_click("btn_ok", timeout=15)
+
+    def _claw_hold_button(self, pos):
+        hwnd = self.vision.game_hwnd
+        client_x = pos[0] - self.vision._client_offset_x
+        client_y = pos[1] - self.vision._client_offset_y
+        if self._is_ldplayer():
+            child = self._find_render_child(hwnd)
+            target = child if child else hwnd
+            if child:
+                p_origin = win32gui.ClientToScreen(hwnd, (0, 0))
+                c_origin = win32gui.ClientToScreen(child, (0, 0))
+                client_x = client_x - (c_origin[0] - p_origin[0])
+                client_y = client_y - (c_origin[1] - p_origin[1])
             lp = self._make_lparam(client_x, client_y)
-            hwnd = self.vision.game_hwnd
-            if self._is_steam():
-                origin = win32gui.ClientToScreen(hwnd, (0, 0))
-                win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
-                win32gui.SendMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
-                ctypes.windll.user32.SetCursorPos(origin[0] + client_x, origin[1] + client_y)
-                time.sleep(0.045)
+            win32gui.PostMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+            for _ in range(20):
+                time.sleep(0.1)
+                win32gui.PostMessage(target, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp)
+            win32gui.PostMessage(target, win32con.WM_LBUTTONUP, 0, lp)
+        elif self._is_steam():
+            origin = win32gui.ClientToScreen(hwnd, (0, 0))
+            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+            win32gui.SendMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
+            ctypes.windll.user32.SetCursorPos(origin[0] + client_x, origin[1] + client_y)
+            time.sleep(0.045)
+            lp = self._make_lparam(client_x, client_y)
             win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
             for _ in range(20):
                 time.sleep(0.1)
                 win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp)
             win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
-            self.logger.info(f"Claw Machine round {round_num} — held 2 seconds")
-            if self._interruptible_sleep(3.0):
-                return
-        self.logger.info("Claw Machine done — waiting for OK button")
-        self.wait_and_click("btn_ok", timeout=15)
+        else:
+            lp = self._make_lparam(client_x, client_y)
+            win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+            for _ in range(20):
+                time.sleep(0.1)
+                win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp)
+            win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
 
     def execute_infirmary_action(self):
         self.logger.info("Executing INFIRMARY action...")
@@ -424,9 +450,10 @@ class TrainingMixin:
 
         if self._handle_pal_recreation_popup():
             self.logger.info("PAL special recreation selected")
-            return
-
-        self.logger.info("No PAL popup — standard recreation")
+        else:
+            self.logger.info("No PAL popup — standard recreation")
+        self.wait(2.0)
+        self._handle_claw_machine()
 
     def execute_rainbow_training(self):
         self.logger.info("Executing RAINBOW TRAINING action...")

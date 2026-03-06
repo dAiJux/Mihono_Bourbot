@@ -10,6 +10,13 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. It captures
 
 **Windows only.** The bot relies on `pywin32` (`PostMessage`, `PrintWindow`) which are Windows-specific APIs.
 
+The game can run on:
+- **Google Play** via an Android emulator (BlueStacks, MuMu, etc.) — background clicks via `PostMessage`
+- **LDPlayer** — background clicks via `PostMessage` to the render child window
+- **Steam** — foreground clicks via `SendMessage` + `SetCursorPos` (monopolizes the mouse)
+
+Select the platform in the GUI launcher or set `"platform"` in `config/config.json`.
+
 ### Will I get banned?
 
 ⚠️ Use at your own risk. Automation may violate the game's Terms of Service. The bot includes anti-detection measures (random offsets, variable delays) but there is always risk.
@@ -72,7 +79,8 @@ Use a tight crop of the "Races" text label only — exclude the character illust
 
 ### Can I use my PC while the bot runs?
 
-Yes. `PostMessage` sends clicks directly to the window handle — your mouse does not move.
+- **Google Play / LDPlayer**: Yes. `PostMessage` sends clicks directly to the window handle — your mouse does not move.
+- **Steam**: No. Steam requires `SetCursorPos` + `SendMessage` which moves the mouse cursor. Do not use other apps while the bot runs on Steam.
 
 ### How do I stop the bot?
 
@@ -115,7 +123,9 @@ Energy threshold is too high. Lower `thresholds.energy_training` in `config/conf
 
 ### Clicks don't register in game
 
-Some emulators block `PostMessage`. Recommended emulators: BlueStacks 5, LDPlayer, MuMu, DMM Player.
+- Make sure the correct **platform** is selected (`google_play`, `ldplayer`, or `steam`)
+- LDPlayer requires clicking on the render child window — the bot handles this automatically when platform is set to `ldplayer`
+- Some emulators block `PostMessage`. Recommended: BlueStacks 5, LDPlayer, MuMu, DMM Player
 
 ### Screen detected as UNKNOWN
 

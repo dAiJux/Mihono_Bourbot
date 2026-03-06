@@ -992,10 +992,10 @@ class VisualDebugTool:
     def _ocr_skill_cost_at(self, ss: np.ndarray, icon_x: int, icon_y: int,
                             gx: int, gw: int, gh: int, gy: int) -> str:
         from scripts.vision.ocr import _ocr_digits
-        cost_x1 = max(0, icon_x - int(gw * 0.16))
+        cost_x1 = max(0, icon_x - int(gw * 0.25))
         cost_x2 = max(0, icon_x - int(gw * 0.01))
-        cost_y1 = max(0, icon_y - int(gh * 0.022))
-        cost_y2 = min(ss.shape[0], icon_y + int(gh * 0.022))
+        cost_y1 = max(0, icon_y - int(gh * 0.035))
+        cost_y2 = min(ss.shape[0], icon_y + int(gh * 0.035))
         if cost_x2 <= cost_x1 or cost_y2 <= cost_y1:
             return "?"
         roi = ss[cost_y1:cost_y2, cost_x1:cost_x2]

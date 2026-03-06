@@ -4,22 +4,30 @@ All notable changes are documented here.
 
 ---
 
-## [1.0.1] — 2026-03-01
+## [1.0.1] — 2026-03-06
 
 ### Added
-- **Window Selection tab** in the GUI: pick any visible window as the game target, with a live preview and resolution display. Supports any emulator or player without editing code.
-- `window_title` config field — persists the selected window across sessions. Falls back to auto-detect when empty.
-- `sleep_time_multiplier` support in the `wait()` helper — scales all functional waits globally.
+- **LDPlayer support**: New platform option alongside Google Play and Steam. Includes dedicated calibration system, click method (background PostMessage to render child window), and per-platform threshold adjustment.
+- **Steam / LDPlayer calibration**: Visual debug tool now has "Calibrate LDPlayer" and "Calibrate Steam" buttons. Calibrates 12 screen regions with a guided step-by-step workflow. Calibration data saved to `calibration_ldplayer.json` / `calibration_steam.json`.
+- **Platform selector** in GUI launcher and visual debug tool: choose between `google_play`, `ldplayer`, and `steam`.
+- **Scheduled race popup** detection: bot recognizes the "scheduled race" banner and proceeds accordingly.
+- **Insufficient fans popup** detection with configurable `force_race_insufficient_fans` option.
+- **Window Selection tab** in the GUI: pick any visible window as the game target, with a live preview and resolution display.
+- `sleep_time_multiplier` config option — scales all functional waits globally.
 
 ### Changed
-- **Low-energy wit check**: when energy is below the training threshold, the bot now checks **only** the wit training slot instead of scanning all five. If wit scores well enough, it proceeds; otherwise it rests immediately. Eliminates unnecessary clicks.
-- Energy thresholds in the decision engine now use `thresholds.energy_low` from config instead of hardcoded `30`.
-- Between-turn delay now uses `automation_settings.action_delay_min / action_delay_max` from config instead of hardcoded `1–3 s`.
-- `find_game_window()` checks the saved `window_title` first, then falls back to keyword-based auto-detect.
+- **Low-energy wit check**: when energy is below the training threshold, the bot now checks **only** the wit training slot. If wit scores well enough, it proceeds; otherwise it rests immediately.
+- **Screen detection order**: Race Select is now checked before Skill Select to prevent false positives from background buttons on race screens.
+- **Template matching thresholds**: automatically reduced by 0.05 on LDPlayer and Steam (only for high thresholds ≥ 0.78) to compensate for resolution transforms.
+- **Event scraper merge** (`scrape_events.py`): now purely additive — never overwrites existing events. Safe to re-run without losing manual edits (`preferred_choice`, etc.).
+- Energy thresholds in the decision engine now use configurable values from `config.json` instead of hardcoded values.
+- Between-turn delay now uses `action_delay_min / action_delay_max` from config.
 
 ### Fixed
-- Hardcoded energy values (30/35/45) replaced with configurable thresholds throughout `engine.py` and `training.py`.
-- `btn_race_start` is now checked at the top of `detect_screen()` to avoid background-button confusion on the mandatory race screen.
+- **Launcher freeze on startup**: heavy UI construction moved to deferred init so the splash screen stays responsive.
+- **Event title read backwards** (e.g. "Training Extra" instead of "Extra Training"): OCR now sorts by X coordinate for single-line horizontal text.
+- **Template matching returning infinity** from OpenCV `matchTemplate` no longer causes crashes (guarded with `math.isfinite`).
+- **Prerequisite check** now runs in a background thread instead of blocking the GUI.
 
 ---
 

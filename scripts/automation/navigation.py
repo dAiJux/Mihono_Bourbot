@@ -109,39 +109,7 @@ class NavigationMixin:
 
     def execute_claw_machine(self):
         self.logger.info("Executing claw machine...")
-        screenshot = self.vision.take_screenshot()
-
-        claw_pos = self.vision.find_template("btn_claw_machine", screenshot, threshold=0.72)
-        if not claw_pos:
-            self.logger.debug("Claw machine button not found")
-            return
-
-        self.click_with_offset(*claw_pos)
-        self.wait(2.0)
-
-        for _ in range(5):
-            if self._check_stopped():
-                return
-            screenshot = self.vision.take_screenshot()
-
-            for btn in ("btn_ok", "btn_confirm", "btn_next", "btn_tap", "btn_close"):
-                pos = self.vision.find_template(btn, screenshot, threshold=0.72)
-                if pos:
-                    gx, _, gw, _ = self.vision.get_game_rect(screenshot)
-                    if gx <= pos[0] <= gx + gw:
-                        self.click_button(btn, screenshot, threshold=0.72)
-                        self.wait(1.0)
-                        break
-            else:
-                gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
-                self.click_with_offset(gx + gw // 2, gy + int(gh * 0.7))
-                self.wait(1.0)
-
-            screen = self.vision.detect_screen(screenshot)
-            if screen == GameScreen.MAIN:
-                break
-
-        self.logger.info("Claw machine sequence finished")
+        self._handle_claw_machine()
 
     def advance_turn(self):
         idle_count = 0

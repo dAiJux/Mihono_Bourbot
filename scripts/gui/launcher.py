@@ -69,8 +69,8 @@ class BotLauncher(tk.Tk):
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_app_id)
         self.title("Mihono Bourbot")
         self.configure(bg=self.BG)
-        self._apply_icon()
         self._splash = self._show_splash()
+        self._apply_icon()
         self.config_data = self._load_config()
         self.bot_thread = None
         self.bot_running = False
@@ -79,10 +79,23 @@ class BotLauncher(tk.Tk):
         self.after(10, self._deferred_init)
 
     def _deferred_init(self):
-        self._setup_styles()
-        self._build_ui()
-        self._update_status_bar()
-        self.update_idletasks()
+        self._init_steps = [
+            self._setup_styles,
+            self._build_ui,
+            self._update_status_bar,
+            self._finalize_window,
+        ]
+        self._run_next_init_step()
+
+    def _run_next_init_step(self):
+        if not self._init_steps:
+            return
+        step = self._init_steps.pop(0)
+        step()
+        if self._init_steps:
+            self.after(1, self._run_next_init_step)
+
+    def _finalize_window(self):
         if self._splash:
             self._splash.destroy()
             self._splash = None
@@ -369,14 +382,17 @@ class BotLauncher(tk.Tk):
         tab_stats = ttk.Frame(notebook)
         notebook.add(tab_stats, text="  Stats & Priority  ")
         self._build_stats_tab(self._scrollable_tab(tab_stats))
+        self.update()
 
         tab_race = ttk.Frame(notebook)
         notebook.add(tab_race, text="  Race & Thresholds  ")
         self._build_race_tab(self._scrollable_tab(tab_race))
+        self.update()
 
         tab_skills = ttk.Frame(notebook)
         notebook.add(tab_skills, text="  Skills  ")
         self._build_skills_tab(tab_skills)
+        self.update()
 
         tab_window = ttk.Frame(notebook)
         notebook.add(tab_window, text="  Window  ")
@@ -385,6 +401,7 @@ class BotLauncher(tk.Tk):
         tab_auto = ttk.Frame(notebook)
         notebook.add(tab_auto, text="  Automation & Safety  ")
         self._build_auto_tab(self._scrollable_tab(tab_auto))
+        self.update()
 
         tab_log = ttk.Frame(notebook)
         notebook.add(tab_log, text="  Log  ")
@@ -1246,6 +1263,8 @@ class VisionTestDialog(tk.Toplevel):
         "mood":       (255, 128, 0),
         "event":      (200, 100, 255),
         "warning":    (0, 0, 255),
+        "skill_buy":  (0, 220, 60),
+        "skill_lock": (0, 60, 220),
     }
 
     _MAIN_BUTTONS = [
@@ -1255,7 +1274,7 @@ class VisionTestDialog(tk.Toplevel):
     _GENERIC_BUTTONS = [
         "btn_confirm", "btn_ok", "btn_close", "btn_cancel",
         "btn_skip", "btn_tap", "btn_next", "btn_back",
-        "btn_race_start", "btn_race_next_finish",
+        "btn_race_confirm", "btn_race_start", "btn_race_next_finish",
         "btn_inspiration", "btn_claw_machine", "btn_try_again",
     ]
     _RACE_BUTTONS = [
@@ -1265,6 +1284,10 @@ class VisionTestDialog(tk.Toplevel):
     ]
     _STRATEGY_TEMPLATES = [
         "strategy_end", "strategy_late", "strategy_pace", "strategy_front",
+    ]
+    _UNITY_BUTTONS = [
+        "btn_unity_launch", "btn_select_opponent", "btn_begin_showdown",
+        "btn_see_unity_results", "btn_next_unity", "btn_launch_final_unity",
     ]
 
     def __init__(self, parent, config_path):
@@ -1371,9 +1394,9 @@ class VisionTestDialog(tk.Toplevel):
 
             from scripts.models import GameScreen
 
-            if screen in (GameScreen.MAIN, GameScreen.TRAINING, GameScreen.EVENT,
-                          GameScreen.RACE_SELECT, GameScreen.INSUFFICIENT_FANS,
-                          GameScreen.SCHEDULED_RACE_POPUP, GameScreen.UNKNOWN):
+            if screen in (GameScreen.MAIN, GameScreen.TRAINING,
+                          GameScreen.INSUFFICIENT_FANS,
+                          GameScreen.SCHEDULED_RACE_POPUP):
                 energy = self._vision.read_energy_percentage(ss)
                 tag = "ok" if energy >= 50 else ("warn" if energy >= 30 else "bad")
                 info.append(("ENERGY", f"{energy:.0f}%", tag))
@@ -1426,20 +1449,113 @@ class VisionTestDialog(tk.Toplevel):
                     if pos and gx <= pos[0] <= gx + gw:
                         short = btn.replace("btn_", "")
                         pct = int(conf * 100)
-                        info.append(("", f"  {short} — Précision : {pct}%", "ok"))
+                        info.append(("", f"  {short} ({pct}%)", "ok"))
                         detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
 
             if screen == GameScreen.TRAINING:
                 info.append(("TRAINING", "", "header"))
+                opts = self._vision.get_training_options(ss)
+                for name, pos in opts.items():
+                    if pos:
+                        info.append(("", f"  {name.title()} : visible", "ok"))
+                        detections.append(("dot", self._COLORS["button"], pos[0], pos[1], name.title()))
+                    else:
+                        info.append(("", f"  {name.title()} : not visible", "warn"))
+                try:
+                    abbrevs = {"speed": "Spe", "stamina": "Sta", "power": "Pow",
+                               "guts": "Gut", "wit": "Wit", "pal": "PAL"}
+                    card_types = self._vision.detect_card_types_with_pal(ss)
+                    if card_types:
+                        ct_str = " | ".join(abbrevs.get(ct, ct) for ct in card_types)
+                        info.append(("", f"  Card types : {ct_str}", None))
+                    bar_info = self._vision._count_support_bars(ss)
+                    if bar_info["bars"]:
+                        bar_str = ", ".join(t for _, _, t in bar_info["bars"])
+                        info.append(("", f"  Support bars : {bar_info['total']} ({bar_str})", None))
+                    levels = self._vision.count_support_friendship_leveled(ss)
+                    parts = []
+                    if levels["partial"]:
+                        parts.append(f"partial={levels['partial']}")
+                    if levels["orange_plus"]:
+                        parts.append(f"orange+={levels['orange_plus']}")
+                    if levels["pal_orange"]:
+                        parts.append(f"pal_orange={levels['pal_orange']}")
+                    if levels["pal"]:
+                        parts.append("pal=yes")
+                    if parts:
+                        info.append(("", f"  Friendship : {' '.join(parts)}", None))
+                    else:
+                        info.append(("", "  Friendship : none detected", "warn"))
+                except Exception:
+                    pass
                 rainbow_count = self._vision.detect_rainbow_training(ss)
                 bursts = self._vision.detect_burst_training(ss)
-                info.append(("", f"  Rainbow: {rainbow_count}", "ok" if rainbow_count else None))
-                info.append(("", f"  White bursts: {len(bursts['white'])}", None))
-                info.append(("", f"  Blue bursts: {len(bursts['blue'])}", None))
+                if rainbow_count:
+                    info.append(("", f"  Rainbow : {rainbow_count}", "ok"))
+                if bursts["white"]:
+                    info.append(("", f"  White burst : {len(bursts['white'])}", None))
+                if bursts["blue"]:
+                    info.append(("", f"  Blue burst : {len(bursts['blue'])}", None))
 
             if screen == GameScreen.EVENT:
                 event_type = self._vision.detect_event_type(ss)
-                info.append(("EVENT", f"Type: {event_type or 'unknown'}", "header"))
+                info.append(("EVENT", f"Type : {event_type or 'unknown'}", "header"))
+                try:
+                    title = self._vision.read_event_title(ss)
+                    if title:
+                        info.append(("", f"  Title : {title}", None))
+                except Exception:
+                    title = None
+                ec = self._vision._calibration.get("event_choices", {})
+                choice_y_min = gy + int(gh * ec.get("y1", 0.35))
+                choice_y_max = gy + int(gh * ec.get("y2", 0.85))
+                raw_choices = self._vision.find_all_template("event_choice", ss, 0.75, min_distance=30)
+                choices = sorted(
+                    [c for c in raw_choices if gx <= c[0] <= gx + gw and choice_y_min <= c[1] <= choice_y_max],
+                    key=lambda p: p[1],
+                )
+                if choices:
+                    info.append(("", f"  {len(choices)} choice(s)", None))
+                    try:
+                        choice_texts = self._vision.read_choice_texts(ss, choices)
+                        for i, ct in enumerate(choice_texts):
+                            info.append(("", f"    {i+1}. {ct}", None))
+                            detections.append(("dot", self._COLORS["button"], choices[i][0], choices[i][1], f"C{i+1}"))
+                    except Exception:
+                        pass
+                else:
+                    info.append(("", "  No choices detected", "warn"))
+                try:
+                    self._show_event_db_match(info, title)
+                except Exception:
+                    pass
+
+            if screen == GameScreen.SKILL_SELECT:
+                info.append(("SKILLS", "", "header"))
+                try:
+                    buy_icons = self._vision.find_all_template("buy_skill", ss, 0.82, min_distance=20)
+                    visible = [(bx, by) for bx, by in buy_icons
+                               if gy + int(gh * 0.20) < by < gy + int(gh * 0.95)]
+                    info.append(("", f"  {len(visible)} visible skill(s)", None))
+                    for bx, by in visible:
+                        active = self._skill_icon_active(ss, bx, by)
+                        name = self._ocr_skill_name(ss, bx, by, gx, gw, gh, gy)
+                        cost = self._ocr_skill_cost(ss, bx, by, gx, gw, gh, gy)
+                        state = "BUYABLE" if active else "locked"
+                        tag = "ok" if active else "warn"
+                        label = f"  {name} [{cost} SP] — {state}" if name else f"  [{cost} SP] — {state}"
+                        info.append(("", label, tag))
+                        dot_col = self._COLORS["skill_buy"] if active else self._COLORS["skill_lock"]
+                        short = name or "skill"
+                        detections.append(("dot", dot_col, bx, by, f"{short} {cost}SP"))
+                except Exception:
+                    info.append(("", "  Error reading skills", "bad"))
+                for btn, thr, label in [("learn_btn", 0.72, "Learn button"), ("confirm_btn", 0.72, "Confirm button")]:
+                    pos, conf = self._vision.find_template_conf(btn, ss, thr)
+                    if pos:
+                        pct = int(conf * 100)
+                        info.append(("", f"  {label} : {pct}%", "ok"))
+                        detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{label} {pct}%"))
 
             if screen in (GameScreen.RACE, GameScreen.RACE_START, GameScreen.UNKNOWN):
                 for btn in self._RACE_BUTTONS:
@@ -1447,7 +1563,7 @@ class VisionTestDialog(tk.Toplevel):
                     if pos and gx <= pos[0] <= gx + gw:
                         short = btn.replace("race_view_results_", "vr_").replace("btn_", "")
                         pct = int(conf * 100)
-                        info.append(("", f"  {short} — Précision : {pct}%", "ok"))
+                        info.append(("", f"  {short} ({pct}%)", "ok"))
                         detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
 
             if screen == GameScreen.STRATEGY:
@@ -1457,14 +1573,25 @@ class VisionTestDialog(tk.Toplevel):
                     if pos:
                         short = s.replace("strategy_", "")
                         pct = int(conf * 100)
-                        info.append(("", f"  {short} — Précision : {pct}%", "ok"))
+                        info.append(("", f"  {short} ({pct}%)", "ok"))
                         detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
 
             if screen in (GameScreen.INSUFFICIENT_FANS, GameScreen.SCHEDULED_RACE_POPUP):
                 banner = self._vision.identify_popup_banner(ss)
                 info.append(("BANNER", banner or "?", "header"))
 
-            if screen in (GameScreen.MAIN, GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.RACE_START):
+            if screen == GameScreen.UNITY:
+                info.append(("UNITY", "", "header"))
+                for btn in self._UNITY_BUTTONS:
+                    pos, conf = self._vision.find_template_conf(btn, ss, 0.70)
+                    if pos and gx <= pos[0] <= gx + gw:
+                        short = btn.replace("btn_", "")
+                        pct = int(conf * 100)
+                        info.append(("", f"  {short} ({pct}%)", "ok"))
+                        detections.append(("dot", self._COLORS["button"], pos[0], pos[1], f"{short} {pct}%"))
+
+            if screen in (GameScreen.MAIN, GameScreen.RACE_SELECT, GameScreen.RACE,
+                          GameScreen.RACE_START, GameScreen.TRAINING):
                 gdate = self._vision.read_game_date(ss)
                 if gdate:
                     ds = f"{gdate.get('year','')} {gdate.get('half','')} {gdate.get('month','')}".strip()
@@ -1549,6 +1676,211 @@ class VisionTestDialog(tk.Toplevel):
         self._info_text.configure(state="disabled")
 
         self._status_var.set("Capture complete")
+
+    def _show_event_db_match(self, info, title):
+        import json as _json
+        from difflib import SequenceMatcher
+        from pathlib import Path
+        db_path = Path("config/event_database.json")
+        if not db_path.exists():
+            return
+        db = _json.loads(db_path.read_text(encoding="utf-8"))
+        search = (title or "").strip().lower()
+        if not search:
+            return
+
+        all_events = []
+        for cn, ce in db.get("character_events", {}).items():
+            for en, d in ce.items():
+                all_events.append((en, d, f"character ({cn})"))
+        for cn, cd in db.get("support_card_events", {}).items():
+            for en, d in cd.get("events", {}).items():
+                all_events.append((en, d, f"support ({cn})"))
+        for en, d in db.get("common_events", {}).items():
+            all_events.append((en, d, "common"))
+
+        best_name, best_data, best_src, best_score = None, None, None, 0.0
+        for en, d, src in all_events:
+            a = en.lower().strip()
+            if a == search:
+                s = 1.0
+            elif a in search:
+                s = 0.95
+            else:
+                s = SequenceMatcher(None, a, search).ratio()
+            if s > best_score:
+                best_name, best_data, best_src, best_score = en, d, src, s
+
+        if best_name and best_score >= 0.5:
+            info.append(("", f"  [DB] {best_name} ({best_src}) [{best_score:.0%}]", "ok"))
+            choices_data = best_data.get("choices", {})
+            for num in sorted(choices_data, key=lambda x: int(x) if x.isdigit() else 0):
+                c = choices_data[num]
+                desc = c.get("description", "")
+                label = f"Choice {num}" if num != "0" else "Auto"
+                desc_part = f" ({desc})" if desc and desc != "auto" else ""
+                if "outcomes" in c:
+                    info.append(("", f"    {label}{desc_part}:", None))
+                    for variant, outcome in c["outcomes"].items():
+                        info.append(("", f"      [{variant}] {self._format_outcome(outcome)}", None))
+                else:
+                    info.append(("", f"    {label}{desc_part}: {self._format_outcome(c)}", None))
+        else:
+            info.append(("", f"  [DB] No match for \"{title}\"", "warn"))
+
+    @staticmethod
+    def _format_outcome(data):
+        parts = []
+        eff = data.get("effects", {})
+        if eff:
+            parts.append(", ".join(f"{k}: {v:+d}" for k, v in eff.items()))
+        skills = data.get("skills", [])
+        if skills:
+            sk = []
+            for s in skills:
+                if isinstance(s, dict):
+                    sk.append(f"{s['name']} +{s['level']}")
+                else:
+                    sk.append(str(s))
+            parts.append("skills: " + ", ".join(sk))
+        return " | ".join(parts) or "(no effects)"
+
+    @staticmethod
+    def _skill_icon_active(ss, x, y, radius=18):
+        import cv2
+        import numpy as np
+        y1 = max(0, y - radius)
+        y2 = min(ss.shape[0], y + radius)
+        x1 = max(0, x - radius)
+        x2 = min(ss.shape[1], x + radius)
+        roi = ss[y1:y2, x1:x2]
+        if roi.size == 0:
+            return False
+        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        green_mask = (
+            (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85) &
+            (hsv[:, :, 1] >= 60) &
+            (hsv[:, :, 2] >= 100)
+        )
+        return float(np.sum(green_mask)) / max(1, roi.shape[0] * roi.shape[1]) >= 0.10
+
+    def _ocr_skill_name(self, ss, icon_x, icon_y, gx, gw, gh, gy):
+        import cv2
+        import numpy as np
+        from scripts.vision.ocr import _ocr_text_raw
+        xf = self._vision._aspect_x_factor(gw, gh)
+        x1 = gx + int(gw * 0.08 * xf)
+        x2 = gx + int(gw * 0.73 * xf)
+        search_top = max(gy, icon_y - int(gh * 0.130))
+        search_bot = max(gy + 1, icon_y - int(gh * 0.008))
+        scan = ss[search_top:search_bot, x1:x2]
+        if scan.size == 0:
+            return ""
+        gray_scan = cv2.cvtColor(scan, cv2.COLOR_BGR2GRAY).astype(float)
+        edge_rows = []
+        for rel_y in range(gray_scan.shape[0]):
+            grad = float(np.abs(np.diff(gray_scan[rel_y])).mean())
+            if grad > 2.0:
+                edge_rows.append(rel_y)
+        if not edge_rows:
+            return ""
+        clusters = []
+        cluster = [edge_rows[0]]
+        for r in edge_rows[1:]:
+            if r - cluster[-1] <= 4:
+                cluster.append(r)
+            else:
+                clusters.append(cluster)
+                cluster = [r]
+        clusters.append(cluster)
+        scan_h = scan.shape[0]
+        for min_dist_frac in [0.10, 0.05, 0.02]:
+            min_dist = max(3, int(scan_h * min_dist_frac))
+            candidates = [c for c in clusters if scan_h - max(c) > min_dist]
+            if candidates:
+                break
+        if not candidates:
+            return ""
+        title_cluster = candidates[-1]
+        t_y1 = max(0, min(title_cluster) - 3)
+        t_y2 = min(scan.shape[0], max(title_cluster) + 6)
+        roi = scan[t_y1:t_y2]
+        if roi.size == 0:
+            return ""
+        scale = 3
+        big = cv2.resize(roi, (roi.shape[1] * scale, roi.shape[0] * scale),
+                         interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+        best_raw = ""
+        for t in [100, 120, 80]:
+            _, th = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY_INV)
+            dark_pct = float((th > 0).sum()) / max(1, th.size) * 100
+            if 2.0 <= dark_pct <= 20.0:
+                try:
+                    candidate = _ocr_text_raw(th).strip()
+                    if len(candidate) > len(best_raw):
+                        best_raw = candidate
+                except Exception:
+                    pass
+        if not best_raw:
+            _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            try:
+                best_raw = _ocr_text_raw(th).strip()
+            except Exception:
+                pass
+        return self._snap_skill_name(best_raw)
+
+    @staticmethod
+    def _snap_skill_name(raw):
+        if not raw:
+            return ""
+        try:
+            from difflib import SequenceMatcher
+            db_path = os.path.join("config", "skills.json")
+            if not os.path.exists(db_path):
+                return raw
+            with open(db_path, encoding="utf-8") as f:
+                skills = json.load(f)
+            names = [s["name"] for s in skills]
+            best_name, best_score = raw, 0.0
+            raw_words = set(raw.lower().split())
+            for n in names:
+                n_words = set(n.lower().replace("\u25ce", "").replace("\u25cb", "").split())
+                if raw_words & n_words:
+                    ws = len(raw_words & n_words) / max(1, len(n_words))
+                    ss = SequenceMatcher(None, raw.lower(), n.lower()).ratio()
+                    score = ws * 0.6 + ss * 0.4
+                else:
+                    score = SequenceMatcher(None, raw.lower(), n.lower()).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_name = n
+            return best_name if best_score >= 0.25 else raw
+        except Exception:
+            return raw
+
+    def _ocr_skill_cost(self, ss, icon_x, icon_y, gx, gw, gh, gy):
+        import cv2
+        from scripts.vision.ocr import _ocr_digits
+        cost_x1 = max(0, icon_x - int(gw * 0.25))
+        cost_x2 = max(0, icon_x - int(gw * 0.01))
+        cost_y1 = max(0, icon_y - int(gh * 0.035))
+        cost_y2 = min(ss.shape[0], icon_y + int(gh * 0.035))
+        if cost_x2 <= cost_x1 or cost_y2 <= cost_y1:
+            return "?"
+        roi = ss[cost_y1:cost_y2, cost_x1:cost_x2]
+        if roi.size == 0:
+            return "?"
+        scale = 3
+        big = cv2.resize(roi, (roi.shape[1] * scale, roi.shape[0] * scale),
+                         interpolation=cv2.INTER_CUBIC)
+        gray = cv2.cvtColor(big, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+        try:
+            result = _ocr_digits(thresh).strip()
+            return result if result else "?"
+        except Exception:
+            return "?"
 
     def _redraw_image(self):
         if not hasattr(self, "_overlay_bgr") or self._overlay_bgr is None:

@@ -16,6 +16,7 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. Captures th
 | Category | Details |
 |----------|---------|
 | **Interaction** | Window-only clicks via `PostMessage` — mouse and keyboard stay free |
+| **Platforms** | Google Play (emulators), LDPlayer, Steam — each with dedicated click method and calibration |
 | **Window Selection** | GUI tab to pick any visible window — supports all emulators and players |
 | **Interface** | GUI launcher with stat priorities, thresholds, and scenario selection |
 | **Decision engine** | Priority tree: Race › Infirmary › Rest › Recreation › Training |
@@ -36,7 +37,7 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. Captures th
 | Requirement | Notes |
 |-------------|-------|
 | Python 3.8+ | [python.org](https://www.python.org/downloads/) |
-| Umamusume Pretty Derby | Running in any emulator or player |
+| Umamusume Pretty Derby | Running via Google Play (emulator), LDPlayer, or Steam |
 | EasyOCR models | Downloaded automatically on first run (~500 MB) |
 
 ### Installation
@@ -100,11 +101,13 @@ mihono_bourbot/
 │   └── meta.json            # Template metadata
 │
 ├── config/
-│   ├── calibration.json     # Screen region calibration
-│   ├── config.json          # User settings
-│   ├── event_database.json  # Event choices (500+ entries)
-│   ├── races.json           # Race schedule data
-│   └── skills.json          # Skill database (515 entries)
+│   ├── calibration.json          # Screen region calibration (Google Play)
+│   ├── calibration_ldplayer.json # LDPlayer calibration overrides
+│   ├── calibration_steam.json    # Steam calibration overrides
+│   ├── config.json               # User settings
+│   ├── event_database.json       # Event choices (500+ entries)
+│   ├── races.json                # Race schedule data
+│   └── skills.json               # Skill database (515 entries)
 │
 ├── assets/
 │   ├── logo-32x32.png
@@ -137,6 +140,7 @@ Edit `config/config.json` or use the GUI:
 | `thresholds.energy_training` | 50 | Allow training above (%) |
 | `safety_settings.emergency_stop_key` | `F12` | Emergency stop hotkey |
 | `scenario` | `unity_cup` | `unity_cup` or `ura` |
+| `platform` | `google_play` | `google_play`, `ldplayer`, or `steam` |
 
 ---
 

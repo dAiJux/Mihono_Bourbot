@@ -40,22 +40,22 @@ class DetectionMixin:
         has_btn_race = self.find_template("btn_race", screenshot, 0.80)
         has_btn_race_launch = self.find_template("btn_race_launch", screenshot, 0.75) if has_btn_race else None
 
+        banner = self.identify_popup_banner(screenshot)
+        if banner == "insufficient_fans":
+            if not self.find_template("learn_btn", screenshot, 0.72) and \
+               not self.find_template("btn_begin_showdown", screenshot, 0.70):
+                return GameScreen.INSUFFICIENT_FANS
+        if banner == "scheduled_race":
+            if not self.find_template("confirm_btn", screenshot, 0.72):
+                return GameScreen.SCHEDULED_RACE_POPUP
+
         if has_btn_race and not has_btn_race_launch:
             return GameScreen.RACE_SELECT
 
         if self.find_template("btn_race_confirm", screenshot, 0.65):
-            return GameScreen.RACE_SELECT
-
-        if self.find_template("buy_skill", screenshot, 0.82) or \
-           self.find_template("learn_btn", screenshot, 0.72) or \
-           self.find_template("confirm_btn", screenshot, 0.72):
-            return GameScreen.SKILL_SELECT
-
-        banner = self.identify_popup_banner(screenshot)
-        if banner == "insufficient_fans":
-            return GameScreen.INSUFFICIENT_FANS
-        if banner == "scheduled_race":
-            return GameScreen.SCHEDULED_RACE_POPUP
+            if not (self.find_template("buy_skill", screenshot, 0.82) or
+                    self.find_template("confirm_btn", screenshot, 0.72)):
+                return GameScreen.RACE_SELECT
 
         for tpl, thr in [("btn_race_start", 0.70), ("btn_race_start_ura", 0.70)]:
             if self.find_template(tpl, screenshot, thr):
@@ -83,6 +83,15 @@ class DetectionMixin:
         if self.config.get("scenario", "unity_cup") != "ura":
             if self.find_template("white_burst", screenshot, 0.65):
                 return GameScreen.TRAINING
+
+        gx_sk, gy_sk, gw_sk, gh_sk = self.get_game_rect(screenshot)
+        buy_pos = self.find_template("buy_skill", screenshot, 0.82)
+        if buy_pos and buy_pos[1] > gy_sk + int(gh_sk * 0.95):
+            buy_pos = None
+        if buy_pos or \
+           self.find_template("learn_btn", screenshot, 0.72) or \
+           self.find_template("confirm_btn", screenshot, 0.72):
+            return GameScreen.SKILL_SELECT
 
         if self.find_template("btn_claw_machine", screenshot, 0.72):
             return GameScreen.CLAW_MACHINE

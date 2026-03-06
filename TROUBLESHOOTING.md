@@ -48,10 +48,9 @@ The diagnostics panel shows confidence scores for each template. Buttons with ch
 **Detection order** in `detect_screen()`:
 
 1. Strategy popup
-2. Skill select
-3. **Race / mandatory race** (`btn_race_start`) ← checked first to avoid background button confusion
-4. Race select
-5. Main screen
+2. Race select (`btn_race`, `btn_race_confirm`)
+3. Skill select
+4. Main screen
 6. Training
 7. Others
 
@@ -85,15 +84,15 @@ Verify: `python -c "import easyocr; print('OK')"`
 
 **Symptoms:** Bot logs actions but game does not respond
 
-`PostMessage` is blocked by some renderers.
+**First: check your platform setting.** The click method differs per platform:
 
-| Emulator | Status |
-|----------|--------|
-| BlueStacks 5 | ✅ |
-| LDPlayer | ✅ |
-| MuMu | ✅ |
-| DMM Player | ✅ |
-| Nox | ⚠️ Inconsistent |
+| Platform | Click Method | Background? |
+|----------|-------------|-------------|
+| `google_play` | `PostMessage` to main window | ✅ Yes |
+| `ldplayer` | `PostMessage` to render child window | ✅ Yes |
+| `steam` | `SetCursorPos` + `SendMessage` | ❌ No (monopolizes mouse) |
+
+If clicks don't work on **LDPlayer**, make sure `"platform": "ldplayer"` is set in config. The bot must target the child rendering window — using `google_play` mode on LDPlayer will silently fail.
 
 Verify the window handle is found: check logs for `Game window found: <title>`.
 

@@ -26,6 +26,25 @@ class ClickMixin:
     def _is_steam(self) -> bool:
         return self.config.get("platform", "google_play") == "steam"
 
+    def _is_ldplayer(self) -> bool:
+        return self.config.get("platform", "google_play") == "ldplayer"
+
+    def _find_render_child(self, parent_hwnd):
+        best = None
+        best_area = 0
+        def callback(hwnd, _):
+            nonlocal best, best_area
+            try:
+                r = win32gui.GetClientRect(hwnd)
+                area = r[2] * r[3]
+                if area > best_area:
+                    best_area = area
+                    best = hwnd
+            except Exception:
+                pass
+        win32gui.EnumChildWindows(parent_hwnd, callback, None)
+        return best
+
     def click_at(self, x: int, y: int):
         hwnd = self.vision.game_hwnd
         if hwnd is None or not win32gui.IsWindow(hwnd):
@@ -41,6 +60,8 @@ class ClickMixin:
 
         if self._is_steam():
             self._steam_click(hwnd, client_x, client_y)
+        elif self._is_ldplayer():
+            self._ldplayer_click(hwnd, client_x, client_y)
         else:
             lp = self._make_lparam(client_x, client_y)
             win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
@@ -60,6 +81,24 @@ class ClickMixin:
         win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
         time.sleep(random.uniform(0.20, 0.25))
         win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+
+    def _ldplayer_click(self, parent_hwnd, client_x, client_y):
+        child = self._find_render_child(parent_hwnd)
+        if child is None:
+            self.logger.warning("LDPlayer render child not found, falling back to parent")
+            lp = self._make_lparam(client_x, client_y)
+            win32gui.PostMessage(parent_hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+            time.sleep(random.uniform(0.05, 0.15))
+            win32gui.PostMessage(parent_hwnd, win32con.WM_LBUTTONUP, 0, lp)
+            return
+        p_origin = win32gui.ClientToScreen(parent_hwnd, (0, 0))
+        c_origin = win32gui.ClientToScreen(child, (0, 0))
+        child_x = client_x - (c_origin[0] - p_origin[0])
+        child_y = client_y - (c_origin[1] - p_origin[1])
+        lp = self._make_lparam(child_x, child_y)
+        win32gui.PostMessage(child, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+        time.sleep(random.uniform(0.05, 0.15))
+        win32gui.PostMessage(child, win32con.WM_LBUTTONUP, 0, lp)
 
     def click_with_offset(self, x: int, y: int):
         lo, hi = self.click_offset_range
