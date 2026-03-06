@@ -12,9 +12,10 @@ class RaceMixin:
 
     def _execute_mandatory_race(self):
         screenshot = self.vision.take_screenshot()
+        is_ura = self.vision.find_template("btn_race_start_ura", screenshot, 0.70) is not None
         pos = self.vision.detect_race_start_button(screenshot)
         if pos:
-            self.logger.info(f"Step 1: Clicking race start button at {pos}")
+            self.logger.info(f"Step 1: Clicking race start button at {pos}{' (URA final)' if is_ura else ''}")
             self.click_with_offset(*pos)
         else:
             self.logger.error("Cannot find race start button on mandatory race page")
@@ -30,7 +31,7 @@ class RaceMixin:
             self.first_race_done = True
         self.wait(1.0)
 
-        self._run_race_via_view_results(allow_try_again=True)
+        self._run_race_via_view_results(allow_try_again=True, is_ura=is_ura)
 
     def _execute_scheduled_race(self):
         self._click_race_on_race_select()
@@ -115,7 +116,7 @@ class RaceMixin:
             time.sleep(1.0)
         self.logger.warning("Timed out waiting for race prep screen")
 
-    def _run_race_via_view_results(self, allow_try_again=True):
+    def _run_race_via_view_results(self, allow_try_again=True, is_ura=False):
         if self._check_stopped():
             return
         screenshot = self.vision.take_screenshot()
@@ -141,7 +142,7 @@ class RaceMixin:
         tap_y = gy + int(gh * 0.83)
 
         if allow_try_again:
-            self._process_mandatory_results(tap_x, tap_y)
+            self._process_mandatory_results(tap_x, tap_y, is_ura=is_ura)
         else:
             self._process_scheduled_results(tap_x, tap_y)
 
@@ -155,7 +156,7 @@ class RaceMixin:
         self._click_result_button(btn_name, screenshot)
         self.wait(1.5)
 
-    def _process_mandatory_results(self, tap_x, tap_y):
+    def _process_mandatory_results(self, tap_x, tap_y, is_ura=False):
         self.logger.info("Step 6: Tapping center")
         self._tap_center(tap_x, tap_y)
 
@@ -185,15 +186,18 @@ class RaceMixin:
             self.logger.info("Step 7.1: Try Again — clicking")
             self.click_button("btn_try_again", screenshot, threshold=0.75)
             self.wait(2.0)
-            self._run_race_via_view_results(allow_try_again=True)
+            self._run_race_via_view_results(allow_try_again=True, is_ura=is_ura)
             return
 
         self.logger.info("Step 7.2: Results — btn_next clicked")
         self.wait(1.5)
 
         self._wait_and_click("btn_race_next_finish", "Step 8", lambda: self._reclick_result("btn_next"))
-        self._wait_and_click("btn_next", "Step 9", lambda: self._reclick_result("btn_race_next_finish"))
-        self._wait_and_click("btn_next", "Step 10", lambda: self._reclick_result("btn_next"))
+        if not is_ura:
+            self._wait_and_click("btn_next", "Step 9", lambda: self._reclick_result("btn_race_next_finish"))
+            self._wait_and_click("btn_next", "Step 10", lambda: self._reclick_result("btn_next"))
+        else:
+            self.logger.info("URA final race — skipping steps 9-10")
 
     def _process_scheduled_results(self, tap_x, tap_y):
         self.logger.info("Step 6: Tapping center")

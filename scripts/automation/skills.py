@@ -133,11 +133,11 @@ class SkillsMixin:
             screenshot = self.vision.take_screenshot()
             if not self.click_button("confirm_btn", screenshot, threshold=0.72):
                 self.click_button("btn_confirm", screenshot, threshold=0.72)
-            time.sleep(1.0)
+            time.sleep(1.5)
             screenshot = self.vision.take_screenshot()
             if not self.click_button("learn_btn", screenshot, threshold=0.72):
                 self.logger.warning("learn_btn not found after confirm")
-            time.sleep(1.5)
+            time.sleep(2.0)
 
             self.logger.info("Waiting for Skills Learned popup close button...")
             tpl_close = cv2.imread(str(Path("templates/skills/btn_close.png")))
@@ -237,7 +237,7 @@ class SkillsMixin:
                 if _is_skill_match(skill_name, wishlist):
                     self.logger.info(f"Wishlist match '{skill_name}' — selecting")
                     self.click_with_offset(icon_x, icon_y)
-                    self.wait(0.35)
+                    time.sleep(0.5)
                     shopping_list.append(skill_name)
                 else:
                     self.logger.debug(f"No wishlist match: '{skill_name}'")
