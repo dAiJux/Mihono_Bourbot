@@ -164,11 +164,17 @@ class EventDecisionMixin:
             if "outcomes" in choice_data:
                 success = choice_data["outcomes"].get("success", {})
                 fail = choice_data["outcomes"].get("fail", {})
-                s_score = self._score_outcome(success, current_mood, best_conditions, worst_conditions)
-                f_score = self._score_outcome(fail, current_mood, best_conditions, worst_conditions)
-                score = s_score * 0.65 + f_score * 0.35
+                if success.get("chain_end") or fail.get("chain_end"):
+                    score = -9000
+                else:
+                    s_score = self._score_outcome(success, current_mood, best_conditions, worst_conditions)
+                    f_score = self._score_outcome(fail, current_mood, best_conditions, worst_conditions)
+                    score = s_score * 0.65 + f_score * 0.35
             else:
-                score = self._score_outcome(choice_data, current_mood, best_conditions, worst_conditions)
+                if choice_data.get("chain_end"):
+                    score = -9000
+                else:
+                    score = self._score_outcome(choice_data, current_mood, best_conditions, worst_conditions)
 
             if score > best_score:
                 best_score = score

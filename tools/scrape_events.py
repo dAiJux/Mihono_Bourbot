@@ -210,7 +210,9 @@ def convert_results(results, skill_map, se_map):
             name = skill_map.get(d, "")
             if name:
                 skills.append({"name": name, "level": max(1, level)})
-    return effects, skills, conditions
+        elif t == "ee":
+            return effects, skills, conditions, True
+    return effects, skills, conditions, False
 
 
 def has_diverge(results):
@@ -232,37 +234,43 @@ def split_outcomes(results):
     return branches
 
 
+def _add_chain_end(data, chain_end):
+    if chain_end:
+        data["chain_end"] = True
+    return data
+
+
 def build_choice_data(results, skill_map, se_map):
     if has_diverge(results):
         branches = split_outcomes(results)
         if len(branches) >= 2:
-            s_eff, s_sk, s_cond = convert_results(branches[0], skill_map, se_map)
-            f_eff, f_sk, f_cond = convert_results(branches[1], skill_map, se_map)
+            s_eff, s_sk, s_cond, s_ce = convert_results(branches[0], skill_map, se_map)
+            f_eff, f_sk, f_cond, f_ce = convert_results(branches[1], skill_map, se_map)
             return {
                 "description": "",
                 "outcomes": {
-                    "success": {
+                    "success": _add_chain_end({
                         "effects": s_eff,
                         "skills": s_sk,
                         "conditions": s_cond,
-                    },
-                    "fail": {
+                    }, s_ce),
+                    "fail": _add_chain_end({
                         "effects": f_eff,
                         "skills": f_sk,
                         "conditions": f_cond,
-                    },
+                    }, f_ce),
                 },
             }
         elif branches:
-            eff, sk, cond = convert_results(branches[0], skill_map, se_map)
-            return {
+            eff, sk, cond, ce = convert_results(branches[0], skill_map, se_map)
+            return _add_chain_end({
                 "description": "",
                 "effects": eff,
                 "skills": sk,
                 "conditions": cond,
-            }
-    eff, sk, cond = convert_results(results, skill_map, se_map)
-    return {"description": "", "effects": eff, "skills": sk, "conditions": cond}
+            }, ce)
+    eff, sk, cond, ce = convert_results(results, skill_map, se_map)
+    return _add_chain_end({"description": "", "effects": eff, "skills": sk, "conditions": cond}, ce)
 
 
 def process_raw_event(raw, te_names, evrew, skill_map, se_map):
@@ -487,6 +495,11 @@ def _norm(name):
     return name.lower().replace(".", "").replace(" ", "").replace("\u2606", "")
 
 
+def _base_char_name(full_name):
+    m = re.match(r"^(.+?)\s*\(", full_name)
+    return m.group(1).strip().lower() if m else full_name.strip().lower()
+
+
 _DEDUP_RACE_RE = re.compile(
     r"^(Victory!|Solid Showing|Defeat)\s*\((?:G[123]|OP and Pre-OP)\)\s*\(.*?\)$"
 )
@@ -538,6 +551,21 @@ def _extract_common_events(char_events):
     return common, removed
 
 
+def _patch_chain_end(existing_event, new_event):
+    new_choices = new_event.get("choices", {})
+    existing_choices = existing_event.get("choices", {})
+    for cnum, cdata in new_choices.items():
+        if cnum not in existing_choices:
+            continue
+        ec = existing_choices[cnum]
+        if cdata.get("chain_end"):
+            ec["chain_end"] = True
+        if "outcomes" in cdata:
+            for branch in ("success", "fail"):
+                if cdata["outcomes"].get(branch, {}).get("chain_end"):
+                    ec.setdefault("outcomes", {}).setdefault(branch, {})["chain_end"] = True
+
+
 def merge_into_database(
     char_events, support_events, new_common=None,
     db_path="config/event_database.json",
@@ -572,10 +600,17 @@ def merge_into_database(
                 if ev_name not in existing_chars[actual_key]:
                     existing_chars[actual_key][ev_name] = ev_data
                     added_char += 1
+                else:
+                    _patch_chain_end(existing_chars[actual_key][ev_name], ev_data)
     db["character_events"] = existing_chars
 
     existing_sups = db.get("support_card_events", {})
     norm_to_sup = {_norm(k): k for k in existing_sups}
+    base_type_to_sup = {}
+    for k in existing_sups:
+        bt = (_base_char_name(k), existing_sups[k].get("type", ""))
+        if bt[1]:
+            base_type_to_sup.setdefault(bt, k)
 
     added_sup = 0
     new_sups = 0
@@ -586,6 +621,10 @@ def merge_into_database(
         n = _norm(card_name)
         actual_key = norm_to_sup.get(n)
 
+        if not actual_key and card_data.get("type"):
+            bt = (_base_char_name(card_name), card_data["type"])
+            actual_key = base_type_to_sup.get(bt)
+
         if actual_key:
             existing = existing_sups[actual_key]
             if existing.get("type", "Unknown") == "Unknown" and card_data.get("type"):
@@ -594,6 +633,8 @@ def merge_into_database(
                 if ev_name not in existing.setdefault("events", {}):
                     existing["events"][ev_name] = ev_data
                     added_sup += 1
+                else:
+                    _patch_chain_end(existing["events"][ev_name], ev_data)
             updated_sups += 1
         else:
             card_data.pop("support_id", None)

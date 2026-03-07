@@ -106,6 +106,7 @@ class UnityMixin:
         self.wait(2.0)
 
     def _unity_showdown_results(self):
+        time.sleep(3.0)
         self.wait_and_click("btn_see_unity_results", timeout=45)
         self.wait(1.5)
 

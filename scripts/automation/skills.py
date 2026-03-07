@@ -376,25 +376,43 @@ class SkillsMixin:
         if hwnd is None or not win32gui.IsWindow(hwnd):
             return
         x, from_y, to_y = int(x), int(from_y), int(to_y)
+
+        target = hwnd
+        offset_x, offset_y = 0, 0
+
+        if self._is_ldplayer():
+            child = self._find_render_child(hwnd)
+            if child:
+                target = child
+                p_origin = win32gui.ClientToScreen(hwnd, (0, 0))
+                c_origin = win32gui.ClientToScreen(child, (0, 0))
+                offset_x = c_origin[0] - p_origin[0]
+                offset_y = c_origin[1] - p_origin[1]
+
+        sx = x - offset_x
+        sy_start = from_y - offset_y
+        sy_end = to_y - offset_y
+
         if self._is_steam():
             origin = win32gui.ClientToScreen(hwnd, (0, 0))
             win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
             win32gui.SendMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
             ctypes.windll.user32.SetCursorPos(origin[0] + x, origin[1] + from_y)
             time.sleep(0.02)
-        lp_start = win32api.MAKELONG(x, from_y)
-        win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp_start)
+
+        lp_start = win32api.MAKELONG(sx, sy_start)
+        win32gui.SendMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp_start)
         time.sleep(0.08)
         steps = 25
         for i in range(1, steps + 1):
-            interp_y = from_y + int((to_y - from_y) * i / steps)
+            interp_y = sy_start + int((sy_end - sy_start) * i / steps)
             if self._is_steam():
-                ctypes.windll.user32.SetCursorPos(origin[0] + x, origin[1] + interp_y)
-            lp_move = win32api.MAKELONG(x, interp_y)
-            win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp_move)
+                ctypes.windll.user32.SetCursorPos(origin[0] + x, origin[1] + from_y + int((to_y - from_y) * i / steps))
+            lp_move = win32api.MAKELONG(sx, interp_y)
+            win32gui.PostMessage(target, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lp_move)
             time.sleep(0.04)
-        lp_end = win32api.MAKELONG(x, to_y)
-        win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp_end)
+        lp_end = win32api.MAKELONG(sx, sy_end)
+        win32gui.SendMessage(target, win32con.WM_LBUTTONUP, 0, lp_end)
         time.sleep(0.3)
 
     def _close_skill_screen(self):
