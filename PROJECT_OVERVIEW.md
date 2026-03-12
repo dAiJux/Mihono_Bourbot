@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The bot uses a **flat mixin pattern** — all modules live at the package root and are composed into a single `MihonoBourbot` class via multiple inheritance.
+The bot uses a **composition pattern** — specialized modules are instantiated and wired together in the main `MihonoBourbot` class.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -14,11 +14,29 @@ The bot uses a **flat mixin pattern** — all modules live at the package root a
 │               MihonoBourbot                     │
 │                 (bot.py)                        │
 │                                                 │
-│  CaptureMixin  │  DetectionMixin  │  OcrMixin   │
-│  EngineMixin   │  NavigationMixin │  RaceMixin  │
-│  SkillsMixin   │  TrainingMixin   │  UnityMixin │
-│  EventsMixin   │  ClicksMixin                  │
+│  self.vision     = VisionModule(config)         │
+│  self.decision   = DecisionModule(config, …)    │
+│  self.automation = AutomationModule(config, …)  │
 └─────────────────────────────────────────────────┘
+
+VisionModule (scripts/vision/)
+├── CaptureMixin        — window capture, game_rect
+├── DetectionMixin      — template matching, detect_screen
+├── OcrMixin            — stats, energy, mood, event text
+└── TrainingAnalysisMixin — burst/friendship/rainbow
+
+DecisionModule (scripts/decision/)
+├── engine.py           — priority tree (decide_action)
+└── events.py           — event choice scoring
+
+AutomationModule (scripts/automation/)
+├── ClicksMixin         — PostMessage clicks, waits
+├── NavigationMixin     — screen navigation, turn advance
+├── EventsMixin         — event matching & choice execution
+├── RaceMixin           — full race flow
+├── SkillsMixin         — skill screen scroll & selection
+├── TrainingMixin       — training execution, claw machine
+└── UnityMixin          — Unity Cup flow
 ```
 
 ---
@@ -29,43 +47,50 @@ The bot uses a **flat mixin pattern** — all modules live at the package root a
 |------|---------|
 | `bot.py` | Main loop: capture → decide → act → repeat |
 | `models.py` | Shared enums: `GameScreen`, `Action` |
-| `config.py` | Constants, required template names |
-| `capture.py` | Window capture (`PrintWindow` / `BitBlt`), screen calibration |
-| `detection.py` | Template matching, `detect_screen()`, screen-specific detectors |
-| `ocr.py` | EasyOCR — stats, energy, mood, date reading |
-| `training.py` | Training analysis: bursts, friendship, rainbow detection |
-| `engine.py` | Decision priority tree (`decide_action`) |
-| `events.py` | Event matching, choice scoring, database lookup |
-| `navigation.py` | Screen navigation, `advance_turn`, `execute_action` dispatcher |
-| `race.py` | Full race flow: selection → strategy → launch → results |
-| `skills.py` | Skill screen: scroll, OCR, wishlist matching, purchase |
-| `unity.py` | Unity Cup flow: opponents, showdown, results |
-| `clicks.py` | Low-level click helpers: `PostMessage`, offsets, waits |
-| `launcher.py` | Tkinter GUI for configuration and control |
-| `prereqs.py` | Prerequisite checks at startup |
+| **Vision** | |
+| `vision/__init__.py` | `VisionModule` — composes capture, detection, OCR, training analysis |
+| `vision/capture.py` | Window capture (`PrintWindow` / `BitBlt`), game_rect calibration |
+| `vision/detection.py` | Template matching, `detect_screen()`, screen-specific detectors |
+| `vision/ocr.py` | EasyOCR — stats, energy, mood, date, event text reading |
+| `vision/training.py` | Training analysis: bursts, friendship, rainbow detection |
+| **Decision** | |
+| `decision/engine.py` | Decision priority tree (`decide_action`) |
+| `decision/events.py` | Event decision logic |
+| **Automation** | |
+| `automation/clicks.py` | Low-level click helpers: `PostMessage`, offsets, waits |
+| `automation/events.py` | Event matching, choice scoring, database lookup |
+| `automation/navigation.py` | Screen navigation, `advance_turn`, `execute_action` dispatcher |
+| `automation/race.py` | Full race flow: selection → strategy → launch → results |
+| `automation/skills.py` | Skill screen: scroll, OCR, wishlist matching, purchase |
+| `automation/training.py` | Training execution, claw machine handling |
+| `automation/unity.py` | Unity Cup flow: opponents, showdown, results |
+| **GUI** | |
+| `gui/launcher.py` | Tkinter GUI for configuration and control |
+| `gui/config.py` | GUI config panel |
+| `gui/prereqs.py` | Prerequisite checks at startup |
 
 ---
 
-## Mixin Pattern
+## Composition Pattern
 
 ```python
-class MihonoBourbot(
-    CaptureMixin,
-    DetectionMixin,
-    OcrMixin,
-    TrainingMixin,
-    EngineMixin,
-    EventsMixin,
-    NavigationMixin,
-    RaceMixin,
-    SkillsMixin,
-    UnityMixin,
-    ClicksMixin,
-):
+class MihonoBourbot:
+    def __init__(self, config):
+        self.vision     = VisionModule(config)
+        self.decision   = DecisionModule(config, self.vision)
+        self.automation = AutomationModule(config, self.vision, self.decision)
+```
+
+`VisionModule` itself is built from mixins:
+
+```python
+class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin):
     def __init__(self, config): ...
 ```
 
-All mixins share the same `self`, so any mixin can call methods from any other without passing references.
+`AutomationModule` composes clicks, navigation, race, skills, training, unity, and events mixins.
+
+All mixins within a module share the same `self`, so any mixin can call methods from any other without passing references.
 
 ---
 
@@ -85,14 +110,26 @@ Every turn, the bot evaluates conditions in strict order:
 
 **Screen detection order in `detect_screen()`:**
 
-1. Strategy popup (4 strategy templates)
-2. Skill select (`buy_skill`, `learn_btn`, `confirm_btn`)
-3. **Race / mandatory race** (`btn_race_start` — checked before MAIN to avoid background button confusion)
-4. Race select (`btn_race`)
-5. Main screen (2+ main buttons)
-6. Training screen (2+ training templates)
-7. Inspiration, Unity, Race result, Career complete, Event
-8. UNKNOWN
+1. Recreation popup (`recreation_popup` + `trainee_uma` guard)
+2. Strategy popup (≥4 strategy templates)
+3. Pre-compute shared templates (`btn_race`, `learn_btn`, `btn_begin_showdown`, `btn_race_launch`)
+4. Insufficient fans popup (banner match)
+5. Scheduled race popup (banner match + exclusion guards)
+6. Race select (`btn_race` without `btn_race_launch`)
+7. Race select (`btn_race_confirm` without skill/confirm buttons)
+8. Race / Race start (`btn_race_start` / `btn_race_start_ura` + view results / strategy / launch)
+9. Main screen (≥2 main buttons)
+10. Training (≥2 training templates or `white_burst`)
+11. Event (`detect_event_type()`)
+12. Unity Cup (6 unity templates, non-URA only)
+13. Skill select (`buy_skill`, `learn_btn`, `confirm_btn`)
+14. Claw machine (`btn_claw_machine` or `claw_prizes`)
+15. Inspiration (`btn_inspiration`)
+16. Race — launch only (`btn_race_launch`)
+17. Race result (`btn_race_next_finish`, `btn_tap`, `btn_next`)
+18. Try again (`btn_try_again`)
+19. Career complete (`complete_career`)
+20. UNKNOWN (fallback)
 
 ---
 
@@ -100,12 +137,16 @@ Every turn, the bot evaluates conditions in strict order:
 
 ```
 MAIN
- ├── Race day → RACE (mandatory) → RACE_RESULT → MAIN
+ ├── Race day → RACE_START → [STRATEGY] → RACE → RACE_RESULT → MAIN
  ├── btn_races → RACE_SELECT → [STRATEGY] → RACE → RACE_RESULT → MAIN
+ ├── Insufficient fans → INSUFFICIENT_FANS → MAIN
+ ├── Scheduled race popup → SCHEDULED_RACE_POPUP → RACE_SELECT → …
  ├── btn_training → TRAINING → MAIN
  ├── btn_skills → SKILL_SELECT → MAIN
  ├── btn_rest / btn_recreation → MAIN
- └── Event popup → EVENT → MAIN
+ ├── Recreation popup → RECREATION → MAIN
+ ├── Event popup → EVENT → MAIN
+ └── Unity (non-URA) → UNITY → [CLAW_MACHINE] → MAIN
 ```
 
 ---

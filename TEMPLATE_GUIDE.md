@@ -77,12 +77,16 @@ All templates are saved to `templates/` at the project root.
 | `strategy_end` | "End" strategy option |
 | `target_race` | Target race indicator |
 | `scheduled_race` | Scheduled race indicator |
+| `scheduled_race_popup` | Scheduled race popup banner |
+| `insufficient_fans` | Insufficient fans popup banner |
+| `insufficient_fans_icon` | Insufficient fans icon (center of popup) |
 
 ### Event Elements
 
 | Name | What to capture |
 |------|----------------|
 | `event_choice` | An event choice button (any one) |
+| `event_choice_icon` | Small icon next to event choice text (grayscale match) |
 | `event_scenario_window` | Scenario event banner/header |
 | `event_trainee_window` | Trainee event banner/header |
 | `event_support_window` | Support card event banner/header |
@@ -94,8 +98,6 @@ All templates are saved to `templates/` at the project root.
 | `buy_skill` | The buy/purchase icon next to a skill |
 | `learn_btn` | "Learn" button after selecting skills |
 | `confirm_btn` | "Confirm" button on skill purchase |
-| `gold_skill` | Gold skill rarity indicator |
-| `white_skill` | White skill rarity indicator |
 
 ### Unity Cup
 
@@ -110,6 +112,25 @@ All templates are saved to `templates/` at the project root.
 | `btn_launch_final_unity` | "Launch Final" button |
 | `unity_opponent_card` | Opponent card in selection screen |
 | `btn_claw_machine` | Claw machine button |
+| `claw_prizes` | "PRIZES" text on claw machine results page |
+| `blue_burst` | Blue burst indicator |
+| `white_burst` | White/spirit burst indicator |
+
+### Recreation
+
+| Name | What to capture |
+|------|----------------|
+| `recreation_popup` | Recreation popup banner |
+| `trainee_uma` | Trainee character indicator on recreation screen |
+| `arrow_empty` | Empty arrow (recreation gauge) |
+| `arrow_filled` | Filled arrow (recreation gauge) |
+
+### Main Screen Anchors
+
+| Name | What to capture |
+|------|----------------|
+| `anchor_left` | Left edge anchor for main screen detection |
+| `anchor_right` | Right edge anchor for main screen detection |
 
 ### Status Indicators
 

@@ -20,10 +20,10 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. Captures th
 | **Window Selection** | GUI tab to pick any visible window — supports all emulators and players |
 | **Interface** | GUI launcher with stat priorities, thresholds, and scenario selection |
 | **Decision engine** | Priority tree: Race › Infirmary › Rest › Recreation › Training |
-| **Scenarios** | Unity Cup (spirit bursts, unity matches) + URA |
+| **Scenarios** | Unity Cup (spirit bursts, unity matches, claw machine) + URA |
 | **Events** | 500+ events from game8.co with optimal choice selection |
 | **Vision** | Template matching (OpenCV) + OCR (EasyOCR) for stats, energy, mood |
-| **Resolution** | Auto-scales templates to match any game resolution |
+| **Resolution** | Auto-scales templates to match any game resolution (multi-scale search on transformed platforms) |
 | **Skills** | Skill wishlist — auto-scrolls skill screen, selects matching skills |
 | **Safety** | Random offsets, configurable delays, F12 emergency stop |
 | **Debug** | Live overlay (`visual_debug.py`) with D-key diagnostics |
@@ -71,7 +71,7 @@ mihono_bourbot/
 │   │   ├── navigation.py    # Screen navigation, turn advance
 │   │   ├── race.py          # Full race flow
 │   │   ├── skills.py        # Skill screen scroll & selection
-│   │   ├── training.py      # Training analysis (bursts, friendship, rainbow)
+│   │   ├── training.py      # Training execution, claw machine
 │   │   └── unity.py         # Unity Cup flow
 │   ├── decision/
 │   │   ├── engine.py        # Decision priority tree
@@ -81,9 +81,10 @@ mihono_bourbot/
 │   │   ├── launcher.py      # Tkinter GUI launcher
 │   │   └── prereqs.py       # Prerequisite checks at startup
 │   ├── vision/
+│   │   ├── __init__.py      # VisionModule (composes all vision mixins)
 │   │   ├── capture.py       # Window capture, screen calibration
 │   │   ├── detection.py     # Template matching, screen identification
-│   │   ├── ocr.py           # EasyOCR (stats, energy, mood, dates)
+│   │   ├── ocr.py           # EasyOCR (stats, energy, mood, dates, events)
 │   │   └── training.py      # Training visual analysis
 │   ├── __main__.py          # CLI entry point
 │   ├── bot.py               # Main loop orchestrator
@@ -92,13 +93,14 @@ mihono_bourbot/
 ├── templates/
 │   ├── common/              # Shared buttons (ok, cancel, back…)
 │   ├── events/              # Event window templates
-│   ├── main_screen/         # Main screen buttons
+│   ├── main_screen/         # Main screen buttons + anchors
 │   ├── race/                # Race flow templates
+│   ├── recreation/          # Recreation popup templates
 │   ├── skills/              # Skill screen templates
-│   ├── status/              # Energy, mood, injury templates
-│   ├── training/            # Training button templates
-│   ├── unity/               # Unity Cup templates
-│   └── meta.json            # Template metadata
+│   ├── status/              # Energy, mood indicators
+│   ├── training/            # Training button + support bar templates
+│   ├── unity/               # Unity Cup + claw machine templates
+│   └── meta.json            # Template metadata (reference width)
 │
 ├── config/
 │   ├── calibration.json          # Screen region calibration (Google Play)
@@ -106,6 +108,7 @@ mihono_bourbot/
 │   ├── calibration_steam.json    # Steam calibration overrides
 │   ├── config.json               # User settings
 │   ├── event_database.json       # Event choices (500+ entries)
+│   ├── packages.json             # Dependency packages
 │   ├── races.json                # Race schedule data
 │   └── skills.json               # Skill database (515 entries)
 │
@@ -120,6 +123,7 @@ mihono_bourbot/
 │   ├── scrape_events.py     # Event database scraper (game8.co)
 │   └── visual_debug.py      # Live debug overlay
 │
+├── updater.py               # Auto-updater (checks GitHub releases)
 ├── launch_bot.bat           # Windows launch shortcut
 ├── requirements.txt
 └── README.md

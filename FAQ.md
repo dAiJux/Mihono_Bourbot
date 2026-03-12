@@ -94,7 +94,7 @@ Check that `btn_race_next_finish` and `btn_tap` templates exist. These are used 
 
 ### The bot misidentifies the mandatory race screen as Main or Training
 
-This is a known issue when background buttons are visible behind the race overlay. It is resolved in v1.1.0: `btn_race_start` is now checked at the top of `detect_screen`, before any main/training button checks.
+This was an issue when background buttons were visible behind the race overlay. It is now resolved: `btn_race_start` is checked before any main/training button checks in `detect_screen`.
 
 ### The bot keeps resting instead of training
 

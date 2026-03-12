@@ -437,6 +437,11 @@ def _run_standalone():
                         src_root = inner[0]
                     SKIP_DIRS = {"libs", "logs", "_internal"}
                     SKIP_FILES = {"Updater.exe", "Mihono Bourbot.exe"}
+                    new_templates = set()
+                    for item in src_root.rglob("*.png"):
+                        rel = item.relative_to(src_root)
+                        if rel.parts[0] == "templates":
+                            new_templates.add(rel.as_posix())
                     for item in src_root.rglob("*"):
                         if item.is_dir():
                             continue
@@ -469,6 +474,15 @@ def _run_standalone():
                                 shutil.copy2(str(item), str(dst))
                         except Exception:
                             pass
+                    tpl_dir = root_dir / "templates"
+                    if tpl_dir.is_dir() and new_templates:
+                        for old_png in tpl_dir.rglob("*.png"):
+                            rel = old_png.relative_to(root_dir).as_posix()
+                            if rel not in new_templates:
+                                try:
+                                    old_png.unlink()
+                                except Exception:
+                                    pass
                     shutil.rmtree(extract_dir, ignore_errors=True)
                     (root_dir / VERSION_FILE).write_text(info["tag"], encoding="utf-8")
                     _set_prog(100, f"Updated to {info['tag']}!")

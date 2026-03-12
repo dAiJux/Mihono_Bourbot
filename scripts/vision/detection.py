@@ -111,7 +111,8 @@ class DetectionMixin:
            self.find_template("confirm_btn", screenshot, 0.72):
             return GameScreen.SKILL_SELECT
 
-        if self.find_template("btn_claw_machine", screenshot, 0.72):
+        if self.find_template("btn_claw_machine", screenshot, 0.72) or \
+           self.find_template("claw_prizes", screenshot, 0.80):
             return GameScreen.CLAW_MACHINE
 
         if self.find_template("btn_inspiration", screenshot, 0.70):
@@ -225,7 +226,7 @@ class DetectionMixin:
                 return None, max_val
             return (max_loc[0] + templ.shape[1] // 2 + off_x, max_loc[1] + templ.shape[0] // 2 + off_y), max_val
 
-        if max_val < threshold * 0.6:
+        if max_val < threshold * 0.4:
             return None, max_val
 
         file_name = self._TPL_FILE_ALIASES.get(template_name, template_name)

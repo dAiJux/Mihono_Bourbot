@@ -45,6 +45,26 @@ def _ocr_text_horizontal(img_np: np.ndarray) -> str:
     return ' '.join(r[1] for r in results)
 
 
+def _ocr_text_lined(img_np: np.ndarray) -> str:
+    reader = _get_reader()
+    results = reader.readtext(img_np, text_threshold=0.3)
+    if not results:
+        return ''
+    results.sort(key=lambda r: r[0][0][1])
+    line_gap = max(8, min(r[0][2][1] - r[0][0][1] for r in results) * 0.5)
+    lines = [[results[0]]]
+    for r in results[1:]:
+        if r[0][0][1] - lines[-1][0][0][0][1] < line_gap:
+            lines[-1].append(r)
+        else:
+            lines.append([r])
+    parts = []
+    for line in lines:
+        line.sort(key=lambda r: r[0][0][0])
+        parts.append(' '.join(r[1] for r in line))
+    return ' '.join(parts)
+
+
 class OcrMixin:
 
     _MONTH_MAP = {
@@ -439,7 +459,7 @@ class OcrMixin:
             if scale > 1:
                 gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
             _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
-            text = _ocr_text_raw(thresh).strip()
+            text = _ocr_text_lined(thresh).strip()
             return text
         except Exception:
             return ""

@@ -47,20 +47,33 @@ The diagnostics panel shows confidence scores for each template. Buttons with ch
 
 **Detection order** in `detect_screen()`:
 
-1. Strategy popup
-2. Race select (`btn_race`, `btn_race_confirm`)
-3. Skill select
-4. Main screen
-6. Training
-7. Others
+1. Recreation popup
+2. Strategy popup (≥4 matches)
+3. Insufficient fans popup
+4. Scheduled race popup
+5. Race select
+6. Race / Race start
+7. Main screen (≥2 main buttons)
+8. Training (≥2 training templates)
+9. Event
+10. Unity Cup
+11. Skill select
+12. Claw machine
+13. Inspiration
+14. Race (launch only)
+15. Race result
+16. Try again
+17. Career complete
+18. UNKNOWN
 
 **Common misdetections:**
 
 | Actual screen | Detected as | Cause | Fix |
 |---------------|-------------|-------|-----|
-| Mandatory race | MAIN | Background buttons visible, `btn_race_start` threshold too high | Fixed in v1.1.0 |
-| Strategy popup | SKILL_SELECT | `confirm_btn` matches strategy confirm button | Fixed in v1.1.0 |
-| Race result (tap) | UNKNOWN | `btn_tap` threshold 0.75 > actual confidence | Fixed in v1.1.0 |
+| Mandatory race | MAIN | Background buttons visible | Fixed: `btn_race_start` checked before MAIN |
+| Strategy popup | SKILL_SELECT | `confirm_btn` matches strategy confirm | Fixed: strategy requires ≥4 template matches |
+| Claw machine results | UNKNOWN | `btn_claw_machine` absent on results page | Fixed: `claw_prizes` template as alternate indicator |
+| Recreation popup | MAIN | Main buttons visible behind popup | Fixed: recreation checked first with `trainee_uma` guard |
 
 If you still see UNKNOWN on a screen, run `visual_debug.py` with **D** and check which templates are found.
 

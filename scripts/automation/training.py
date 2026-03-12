@@ -296,6 +296,10 @@ class TrainingMixin:
     def _handle_claw_machine(self):
         screenshot = self.vision.take_screenshot()
         if not self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7):
+            if self.vision.find_template("claw_prizes", screenshot, 0.80):
+                self.logger.info("Claw Machine results page detected — clicking OK")
+                self.click_button("btn_ok", screenshot, threshold=0.65)
+                self.wait(2.0)
             return
         self.logger.info("Claw Machine mini-game detected!")
         if self._interruptible_sleep(5.0):
@@ -320,7 +324,13 @@ class TrainingMixin:
             if self._interruptible_sleep(5.0):
                 return
         self.logger.info("Claw Machine done — waiting for OK button")
-        self.wait_and_click("btn_ok", timeout=15)
+        for _ in range(15):
+            if self._check_stopped():
+                return
+            if self.click_button("btn_ok", threshold=0.65):
+                return
+            time.sleep(1.0)
+        self.logger.warning("Timed out waiting for claw machine OK button")
 
     def _claw_hold_button(self, pos):
         hwnd = self.vision.game_hwnd
