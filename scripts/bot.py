@@ -190,7 +190,7 @@ class MihonoBourbot:
                     )
                     self.turn_count -= 1
 
-                time.sleep(random.uniform(0.2, 0.5))
+                time.sleep(random.uniform(*self.automation.action_delay))
 
             except Exception as e:
                 self.logger.error(f"Error during turn {self.turn_count}: {e}")

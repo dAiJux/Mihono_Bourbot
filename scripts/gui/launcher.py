@@ -462,11 +462,6 @@ class BotLauncher(tk.Tk):
             values=["google_play", "ldplayer", "steam"], width=16, state="readonly",
         )
         plat_combo.pack(side="left")
-        ttk.Label(
-            plat_row,
-            text="Google Play / LDPlayer = centered.  Steam = wider layout + sidebar.",
-            style="Dim.TLabel",
-        ).pack(side="left", padx=(12, 0))
 
         top = ttk.LabelFrame(parent, text="Game Window Selection")
         top.pack(fill="x", padx=10, pady=8)
@@ -729,7 +724,7 @@ class BotLauncher(tk.Tk):
             style="Dim.TLabel",
         ).grid(row=5, column=2, padx=8, pady=4, sticky="w")
 
-        pgrp = ttk.LabelFrame(parent, text="Stat Priority (drag to reorder)")
+        pgrp = ttk.LabelFrame(parent, text="Stat Priority")
         pgrp.pack(fill="x", padx=10, pady=8)
 
         self.priority_listbox = tk.Listbox(
@@ -800,11 +795,6 @@ class BotLauncher(tk.Tk):
             sgrp, textvariable=self.scenario_var,
             values=["unity_cup", "ura"], width=14, state="readonly",
         ).grid(row=0, column=1, padx=8)
-        ttk.Label(
-            sgrp,
-            text="Unity Cup = URA + spirit bursts & unity matches. URA = base scenario only.",
-            style="Dim.TLabel",
-        ).grid(row=0, column=2, padx=8, sticky="w")
 
         grp = ttk.LabelFrame(parent, text="Race Strategy")
         grp.pack(fill="x", padx=10, pady=8)
@@ -818,7 +808,7 @@ class BotLauncher(tk.Tk):
             grp, textvariable=self.strategy_var, values=options, width=14, state="readonly"
         ).grid(row=0, column=1, padx=8)
         ttk.Label(
-            grp, text="The bot will select this running strategy before each race.",
+            grp, text="The bot will select this running strategy before first race.",
             style="Dim.TLabel",
         ).grid(row=0, column=2, padx=8, sticky="w")
 
@@ -873,19 +863,6 @@ class BotLauncher(tk.Tk):
             text="When enabled, automatically enters the race. When disabled, dismisses the popup.",
             style="Dim.TLabel",
         ).pack(anchor="w", padx=12, pady=(0, 6))
-
-        info = ttk.LabelFrame(parent, text="Decision Priority (read-only)")
-        info.pack(fill="x", padx=10, pady=8)
-        priorities = [
-            "1. Mandatory Races (Target / Scheduled)",
-            "2. Debuff Management (Infirmary)",
-            "3. Rainbow Training (2+ supports, if energy > threshold)",
-            "4. Low Energy (Rest)",
-            "5. Bad Mood (Recreation)",
-            "6. Training (friendship first, then stat priority)",
-        ]
-        for p in priorities:
-            ttk.Label(info, text=p).pack(anchor="w", padx=12, pady=2)
 
     def _build_skills_tab(self, parent):
         import json as _json
