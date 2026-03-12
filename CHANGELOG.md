@@ -4,6 +4,14 @@ All notable changes are documented here.
 
 ---
 
+## [1.0.2] — 2026-03-12
+
+### Fixed
+- **Game calibration**: Scaling reworked to work properly on most resolutions.
+- **Event detection** Added template and fallbacks to resolve event detection problems.
+
+---
+
 ## [1.0.1] — 2026-03-06
 
 ### Added

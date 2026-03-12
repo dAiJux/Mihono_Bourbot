@@ -30,6 +30,7 @@ COLORS = {
     "bar_gold":       (0, 255, 255),
     "bar_empty":      (128, 128, 128),
     "event_choice":   (255, 0, 255),
+    "event_icon":     (0, 200, 255),
     "button":         (128, 255, 128),
     "training_icon":  (255, 100, 0),
     "column":         (100, 100, 100),
@@ -54,7 +55,7 @@ TRAINING_ICONS = [
 
 MAIN_BUTTONS = [
     "btn_training", "btn_rest", "btn_recreation", "btn_races",
-    "btn_rest_summer", "btn_skills",
+    "btn_rest_summer", "btn_skills", "btn_infirmary",
 ]
 
 GENERIC_BUTTONS = [
@@ -62,7 +63,6 @@ GENERIC_BUTTONS = [
     "btn_skip", "btn_tap", "btn_next", "btn_back",
     "btn_race_start", "btn_race_next_finish",
     "btn_inspiration", "btn_claw_machine", "btn_unity_launch",
-    "btn_try_again",
 ]
 
 EVENT_WINDOWS = [
@@ -210,7 +210,6 @@ class VisualDebugTool:
 
         if self.screen in (GameScreen.MAIN, GameScreen.UNKNOWN):
             self._detect_buttons(ss, gx, gw, MAIN_BUTTONS, "main_btn")
-            self._detect_infirmary(ss, gx, gw)
             self._detect_friendship_bars(ss)
 
         if self.screen in (GameScreen.TRAINING, GameScreen.UNKNOWN):
@@ -259,9 +258,11 @@ class VisualDebugTool:
                     self.info_lines.append(f"  {tpl}: {pos} conf={conf:.3f}")
 
         if self.screen != GameScreen.SKILL_SELECT:
-            btns = GENERIC_BUTTONS
+            btns = list(GENERIC_BUTTONS)
+            if self.screen in (GameScreen.RACE, GameScreen.RACE_RESULT, GameScreen.TRY_AGAIN):
+                btns.append("btn_try_again")
             if self.screen in (GameScreen.RACE_SELECT, GameScreen.RACE, GameScreen.RACE_START, GameScreen.TRY_AGAIN):
-                btns = [b for b in GENERIC_BUTTONS if b != "btn_confirm"]
+                btns = [b for b in btns if b not in ("btn_confirm", "btn_ok")]
             self._detect_buttons(ss, gx, gw, btns, "gen_btn")
 
         if self.show_rois:
@@ -485,17 +486,18 @@ class VisualDebugTool:
                 x1=sx1, y1=sy1 + y_start, x2=sx2, y2=sy1 + y_end,
                 cat="friendship"))
 
-    _DEBUG_BUTTONS = {"btn_rest", "btn_infirmary"}
+    _DEBUG_BUTTONS = set()
 
     def _detect_infirmary(self, ss, gx, gw):
         self._raw_button_match(ss, gx, gw, "btn_infirmary", 0.55, "main_btn")
 
     def _detect_buttons(self, ss, gx, gw, btn_list, cat):
+        thr = 0.80 if cat == "main_btn" else 0.70
         for btn in btn_list:
             if btn in self._DEBUG_BUTTONS:
-                self._raw_button_match(ss, gx, gw, btn, 0.70, cat)
+                self._raw_button_match(ss, gx, gw, btn, thr, cat)
             else:
-                pos, conf = self.vision.find_template_conf(btn, ss, 0.70)
+                pos, conf = self.vision.find_template_conf(btn, ss, thr)
                 if pos and gx <= pos[0] <= gx + gw:
                     short = btn.replace("btn_", "").replace("event_", "ev_")
                     self.detections.append(dict(
@@ -503,6 +505,9 @@ class VisualDebugTool:
                         x=pos[0], y=pos[1], cat=cat))
                     if cat == "main_btn":
                         self.info_lines.append(f"  {short}: {pos} conf={conf:.3f}")
+                elif pos is None and conf >= 0.80 and cat == "main_btn":
+                    short = btn.replace("btn_", "")
+                    self.info_lines.append(f"  {short}: conf={conf:.3f} (brightness gate OFF)")
 
     def _raw_button_match(self, ss, gx, gw, name, threshold, cat):
         self.vision._update_scale(ss)
@@ -1014,11 +1019,17 @@ class VisualDebugTool:
 
     def _detect_events(self, ss, gx, gy, gw, gh):
         event_type = None
+        band_pos = None
+        band_tpl_name = None
+        band_conf = 0.0
         for ew in EVENT_WINDOWS:
             pos, conf = self.vision.find_template_conf(ew, ss, 0.80)
             if pos:
                 short = ew.replace("event_", "").replace("_window", "")
                 event_type = short
+                band_pos = pos
+                band_tpl_name = ew
+                band_conf = conf
                 self.detections.append(dict(
                     type="point", label=f"ev_{short} ({conf:.2f})",
                     color=COLORS["event_window"],
@@ -1027,11 +1038,39 @@ class VisualDebugTool:
                 break
 
         ec = self.vision._calibration.get("event_choices", {})
-        choices = self.vision.find_all_template("event_choice", ss, 0.75, min_distance=30)
         y_min = gy + int(gh * ec.get("y1", 0.35))
         y_max = gy + int(gh * ec.get("y2", 0.85))
-        valid = [c for c in choices if gx <= c[0] <= gx + gw and y_min <= c[1] <= y_max]
-        valid.sort(key=lambda p: p[1])
+
+        band_choices = self.vision.find_all_template("event_choice", ss, 0.75, min_distance=30)
+        band_valid = [c for c in band_choices if gx <= c[0] <= gx + gw and y_min <= c[1] <= y_max]
+        band_valid.sort(key=lambda p: p[1])
+
+        icon_matches = self._find_icon_matches_with_conf(ss, gx, gw, y_min, y_max, threshold=0.70)
+
+        self.info_lines.append(f"Choice bands: {len(band_valid)} detected")
+        self.info_lines.append(f"Choice icons: {len(icon_matches)} detected")
+
+        for cx, cy in band_valid:
+            self.detections.append(dict(
+                type="point", label="band", color=COLORS["event_choice"],
+                x=cx, y=cy, cat="event_choice"))
+
+        for cx, cy, ic_conf in icon_matches:
+            self.detections.append(dict(
+                type="point", label=f"icon ({ic_conf:.2f})",
+                color=(0, 200, 255), x=cx, y=cy, cat="event_choice"))
+            self.info_lines.append(f"  icon at ({cx},{cy}) conf={ic_conf:.3f}")
+
+        choices_from_icons = False
+        if band_valid:
+            valid = band_valid
+            self.info_lines.append(f"Using: bands ({len(valid)})")
+        elif icon_matches:
+            valid = [(x, y) for x, y, _ in icon_matches]
+            choices_from_icons = True
+            self.info_lines.append(f"Using: icon fallback ({len(valid)})")
+        else:
+            valid = []
 
         if valid and not event_type:
             non_event_buttons = [
@@ -1048,27 +1087,144 @@ class VisualDebugTool:
                 self.info_lines.append(f"Event choices suppressed (non-event button visible)")
                 valid = []
 
-        for cx, cy in valid:
-            self.detections.append(dict(
-                type="point", label="choice", color=COLORS["event_choice"],
-                x=cx, y=cy, cat="event_choice"))
         if valid:
             self.info_lines.append(f"Event choices: {len(valid)}")
 
         if not event_type and not valid:
             return
 
-        title = self.vision.read_event_title(ss)
+        h, w = ss.shape[:2]
+        xf = self.vision._aspect_x_factor(gw, gh)
+        et = self.vision._calibration.get("event_title", {})
+        ty1 = gy + int(gh * et.get("y1", 0.13))
+        ty2 = gy + int(gh * et.get("y2", 0.22))
+        tx1 = gx + int(gw * et.get("x1", 0.10) * xf)
+        tx2 = gx + int(gw * et.get("x2", 0.90) * xf)
+        self.detections.append(dict(
+            type="rect", label="title_zone", color=(0, 255, 255),
+            x1=tx1, y1=ty1, x2=tx2, y2=ty2, cat="event_zone", dashed=True))
+
+        self.vision._update_scale(ss)
+        tpl_icon = self.vision._get_scaled_template("event_choice_icon")
+        tpl_band = self.vision._get_scaled_template("event_choice")
+        icon_half_h = (tpl_icon.shape[0] // 2 + 4) if tpl_icon is not None else 28
+        band_half_h = (tpl_band.shape[0] // 2) if tpl_band is not None else 42
+        for i, (cx, cy) in enumerate(valid):
+            roi_left = max(0, gx + int(gw * 0.10))
+            roi_right = min(w, gx + gw - int(gw * 0.02))
+            if choices_from_icons:
+                half_h = icon_half_h
+            else:
+                half_h = band_half_h
+            roi_top = max(0, cy - half_h)
+            roi_bottom = min(h, cy + half_h)
+            self.detections.append(dict(
+                type="rect", label=f"choice_{i+1}_zone", color=(255, 200, 0),
+                x1=roi_left, y1=roi_top, x2=roi_right, y2=roi_bottom,
+                cat="event_zone", dashed=True))
+
+        title = self.vision.read_event_title(ss, band_pos, band_tpl_name)
         if title:
             self.info_lines.append(f"Event title: {title}")
+        elif band_pos and band_conf >= 0.85:
+            self.info_lines.append("Event title: (empty — fallback zone used)")
 
         choice_texts = []
         if valid:
-            choice_texts = self.vision.read_choice_texts(ss, valid)
+            icon_pos = valid if choices_from_icons else None
+            choice_texts = self.vision.read_choice_texts(ss, valid, icon_pos)
             for i, ct in enumerate(choice_texts):
                 self.info_lines.append(f"  Choice {i+1}: {ct}")
 
         self._lookup_event_database(title, choice_texts, valid)
+
+    def _find_icon_matches_with_conf(self, ss, gx, gw, y_min, y_max, threshold=0.65):
+        self.vision._update_scale(ss)
+        templ = self.vision._get_scaled_template("event_choice_icon")
+        if templ is None:
+            self.info_lines.append("  icon: NO TEMPLATE FILE")
+            return []
+        search_img, off_x, off_y = self.vision._get_search_area("event_choice_icon", ss)
+        if search_img.shape[0] < templ.shape[0] or search_img.shape[1] < templ.shape[1]:
+            self.info_lines.append("  icon: search area smaller than template")
+            return []
+        self.info_lines.append(
+            f"  icon tpl: {templ.shape[1]}x{templ.shape[0]} "
+            f"search: {search_img.shape[1]}x{search_img.shape[0]} "
+            f"offset: ({off_x},{off_y}) scale: {self.vision._current_scale:.3f}"
+        )
+        s_gray = cv2.cvtColor(search_img, cv2.COLOR_BGR2GRAY)
+        t_gray = cv2.cvtColor(templ, cv2.COLOR_BGR2GRAY)
+        res = cv2.matchTemplate(s_gray, t_gray, cv2.TM_CCOEFF_NORMED)
+        _, best_val, _, best_loc = cv2.minMaxLoc(res)
+        self.info_lines.append(
+            f"  icon native: best={best_val:.3f} at "
+            f"({best_loc[0] + templ.shape[1]//2 + off_x},"
+            f"{best_loc[1] + templ.shape[0]//2 + off_y}) "
+            f"bounds: gx=[{gx},{gx+gw}] y=[{y_min},{y_max}]"
+        )
+        loc = np.where(res >= threshold)
+        raw = []
+        for pt in zip(*loc[::-1]):
+            cx = pt[0] + templ.shape[1] // 2 + off_x
+            cy = pt[1] + templ.shape[0] // 2 + off_y
+            conf = float(res[pt[1], pt[0]])
+            raw.append((cx, cy, conf))
+        all_raw_before_bounds = len(raw)
+        raw = [(cx, cy, c) for cx, cy, c in raw if gx <= cx <= gx + gw and y_min <= cy <= y_max]
+        if all_raw_before_bounds > len(raw):
+            self.info_lines.append(
+                f"  icon native: {all_raw_before_bounds} above thr, {len(raw)} in bounds"
+            )
+        if not raw:
+            best_fb_conf = 0.0
+            best_fb_raw = []
+            best_fb_scale = None
+            for scale in [0.95, 1.05, 0.9, 1.1, 0.85, 1.15, 0.8, 1.2, 0.75, 1.25]:
+                nw = int(templ.shape[1] * scale)
+                nh = int(templ.shape[0] * scale)
+                if nh > search_img.shape[0] or nw > search_img.shape[1]:
+                    continue
+                scaled = cv2.resize(templ, (nw, nh), interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+                scaled_gray = cv2.cvtColor(scaled, cv2.COLOR_BGR2GRAY) if len(scaled.shape) == 3 else scaled
+                r2 = cv2.matchTemplate(s_gray, scaled_gray, cv2.TM_CCOEFF_NORMED)
+                _, sv, _, sl = cv2.minMaxLoc(r2)
+                loc2 = np.where(r2 >= threshold)
+                n_above = len(loc2[0])
+                if n_above > 0 and sv > best_fb_conf:
+                    scale_raw = []
+                    for pt in zip(*loc2[::-1]):
+                        cx = pt[0] + nw // 2 + off_x
+                        cy = pt[1] + nh // 2 + off_y
+                        conf = float(r2[pt[1], pt[0]])
+                        scale_raw.append((cx, cy, conf))
+                    scale_raw = [(cx, cy, c) for cx, cy, c in scale_raw
+                                 if gx <= cx <= gx + gw and y_min <= cy <= y_max]
+                    if scale_raw:
+                        best_fb_conf = sv
+                        best_fb_raw = scale_raw
+                        best_fb_scale = scale
+                else:
+                    self.info_lines.append(f"  icon scale {scale:.2f}: best={sv:.3f} (below thr)")
+            if best_fb_scale is not None:
+                self.info_lines.append(
+                    f"  icon best fallback: scale={best_fb_scale:.2f} best={best_fb_conf:.3f}"
+                )
+            raw = best_fb_raw
+        scaled_dist = self.vision._scale_px(30)
+        if len(raw) <= 1:
+            return raw
+        raw.sort(key=lambda m: -m[2])
+        filtered = [raw[0]]
+        for m in raw[1:]:
+            if all(abs(m[0] - f[0]) > scaled_dist or abs(m[1] - f[1]) > scaled_dist for f in filtered):
+                filtered.append(m)
+        if len(filtered) < len(raw):
+            self.info_lines.append(
+                f"  icon min_dist filter: {len(raw)} -> {len(filtered)} (dist={scaled_dist})"
+            )
+        filtered.sort(key=lambda m: m[1])
+        return filtered
 
     def _lookup_event_database(self, title: str, choice_texts: list, choice_positions: list):
         db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "event_database.json")

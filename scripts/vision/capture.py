@@ -10,6 +10,21 @@ from pathlib import Path
 
 CAPTUREBLT = 0x40000000
 
+def _get_dpi_scale(hwnd: int) -> float:
+    try:
+        win_dpi = ctypes.windll.user32.GetDpiForWindow(hwnd)
+    except Exception:
+        win_dpi = 96
+    try:
+        sys_dpi = ctypes.windll.user32.GetDpiForSystem()
+    except Exception:
+        sys_dpi = 96
+    if win_dpi <= 0:
+        win_dpi = 96
+    if sys_dpi <= 0:
+        sys_dpi = 96
+    return win_dpi / sys_dpi
+
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 DWMWA_CLOAKED = 14
@@ -308,6 +323,120 @@ class CaptureMixin:
             return anchor_result
         return self._auto_detect_game_rect(screenshot)
 
+    def _find_game_rect_by_edges(self, screenshot: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+        h, w = screenshot.shape[:2]
+        min_game_w = h * 9 // 16
+        if min_game_w >= w:
+            return None
+
+        gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+
+        col_means = np.mean(gray.astype(np.float32), axis=0)
+        black_thresh = 3.0
+        left_black = 0
+        for x in range(w):
+            if col_means[x] > black_thresh:
+                left_black = x
+                break
+        right_black = w - 1
+        for x in range(w - 1, -1, -1):
+            if col_means[x] > black_thresh:
+                right_black = x
+                break
+        black_w = right_black - left_black + 1
+        left_has_black = left_black > 5
+        right_has_black = right_black < w - 6
+        if left_has_black and right_has_black:
+            if min_game_w * 0.85 <= black_w <= min_game_w * 1.15:
+                return (left_black, 0, black_w, h)
+            if black_w > min_game_w * 1.15:
+                centered_x = left_black + (black_w - min_game_w) // 2
+                return (max(0, centered_x), 0, min_game_w, h)
+
+        if not left_has_black and not right_has_black:
+            return None
+
+        grad = np.abs(cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3))
+        strip_positions = [0.05, 0.12, 0.50, 0.85, 0.95]
+        strip_h = max(3, h // 50)
+        combined = np.zeros(w, dtype=np.float64)
+        for frac in strip_positions:
+            y = int(h * frac)
+            y1 = max(0, y - strip_h)
+            y2 = min(h, y + strip_h)
+            combined += np.mean(grad[y1:y2, :], axis=0)
+
+        k = max(3, w // 200)
+        if k % 2 == 0:
+            k += 1
+        smoothed = np.convolve(combined, np.ones(k) / k, mode='same')
+
+        margin = max(10, w // 50)
+        inner = smoothed[margin:w - margin]
+        if len(inner) < min_game_w:
+            return None
+
+        threshold = np.percentile(inner, 85)
+        peaks = []
+        for i in range(1, len(inner) - 1):
+            if inner[i] > threshold and inner[i] >= inner[i - 1] and inner[i] >= inner[i + 1]:
+                peaks.append((margin + i, inner[i]))
+        if len(peaks) < 2:
+            return None
+
+        best_pair = None
+        best_score = 0
+        for i, (px1, s1) in enumerate(peaks):
+            for px2, s2 in peaks[i + 1:]:
+                dist = px2 - px1
+                if dist >= min_game_w * 0.8 and dist <= w * 0.85:
+                    score = (s1 + s2) * (dist / w)
+                    if score > best_score:
+                        best_score = score
+                        best_pair = (px1, px2)
+
+        if best_pair is None:
+            return None
+
+        edge_pad = 3
+        game_x = best_pair[0] - edge_pad
+        game_w = best_pair[1] - best_pair[0] + 2 * edge_pad
+        game_x = max(0, min(w - game_w, game_x))
+        if game_w > min_game_w * 1.15 or game_w < min_game_w * 0.85:
+            return None
+        return (game_x, 0, game_w, h)
+
+    def _find_game_x_by_variance(self, screenshot: np.ndarray, game_w: int):
+        h, w = screenshot.shape[:2]
+        if game_w >= w:
+            return 0
+        gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+        strip_h = max(1, h // 30)
+        fracs = [0.10, 0.30, 0.50, 0.70, 0.90]
+        strip_means = []
+        for frac in fracs:
+            y = int(h * frac)
+            y1 = max(0, y - strip_h)
+            y2 = min(h, y + strip_h)
+            strip = gray[y1:y2, :]
+            strip_means.append(np.mean(strip.astype(np.float32), axis=0))
+        stacked = np.array(strip_means)
+        col_scores = np.var(stacked, axis=0)
+        k = max(5, w // 60)
+        if k % 2 == 0:
+            k += 1
+        smoothed = np.convolve(col_scores, np.ones(k) / k, mode='same')
+        if np.max(smoothed) < 1.0:
+            return None
+        cumsum = np.concatenate(([0.0], np.cumsum(smoothed)))
+        n = len(cumsum)
+        if n <= game_w:
+            return 0
+        end = n - game_w
+        scores = cumsum[game_w:game_w + end] - cumsum[:end]
+        best_x = int(np.argmax(scores))
+        return max(0, min(w - game_w, best_x))
+
     def _match_anchor(self, screenshot: np.ndarray, name: str, scales: list):
         h, w = screenshot.shape[:2]
         path = self.get_template_path(name)
@@ -425,6 +554,33 @@ class CaptureMixin:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
         return (gx + int(gw * rel_x), gy + int(gh * rel_y))
 
+    def _game_window_unobscured(self) -> bool:
+        try:
+            fg = ctypes.windll.user32.GetForegroundWindow()
+            if fg == self.game_hwnd:
+                return True
+            game_mon = ctypes.windll.user32.MonitorFromWindow(self.game_hwnd, 2)
+            fg_mon = ctypes.windll.user32.MonitorFromWindow(fg, 2)
+            return game_mon != fg_mon
+        except Exception:
+            return False
+
+    def _needs_bitblt(self) -> bool:
+        try:
+            hmon = ctypes.windll.user32.MonitorFromWindow(self.game_hwnd, 2)
+            dpiX = ctypes.wintypes.UINT()
+            ctypes.windll.shcore.GetDpiForMonitor(
+                hmon, 0, ctypes.byref(dpiX), ctypes.byref(ctypes.wintypes.UINT()),
+            )
+            mon_dpi = dpiX.value if dpiX.value > 0 else 96
+        except Exception:
+            return False
+        try:
+            sys_dpi = ctypes.windll.user32.GetDpiForSystem()
+        except Exception:
+            return False
+        return mon_dpi != sys_dpi
+
     def take_screenshot(self) -> np.ndarray:
         if not self.game_hwnd or not win32gui.IsWindow(self.game_hwnd):
             self.find_game_window()
@@ -438,14 +594,24 @@ class CaptureMixin:
                 return np.zeros((1920, 1080, 3), dtype=np.uint8)
 
             try:
-                client_origin = win32gui.ClientToScreen(self.game_hwnd, (0, 0))
-                off_x = client_origin[0] - rect[0]
-                off_y = client_origin[1] - rect[1]
                 client_rect = win32gui.GetClientRect(self.game_hwnd)
+                client_origin = win32gui.ClientToScreen(self.game_hwnd, (0, 0))
+                cx, cy = client_origin
                 cw, ch = client_rect[2], client_rect[3]
             except Exception:
-                off_x, off_y = 0, 0
+                cx, cy = rect[0], rect[1]
                 cw, ch = w, h
+
+            if self._needs_bitblt() and self._game_window_unobscured():
+                img = self._capture_bitblt_client(cx, cy, cw, ch)
+                if img is not None and np.mean(img) >= 5:
+                    self._client_offset_x = 0
+                    self._client_offset_y = 0
+                    self.last_screenshot = img
+                    return img
+
+            off_x = max(0, cx - rect[0])
+            off_y = max(0, cy - rect[1])
 
             hwnd_dc = win32gui.GetWindowDC(self.game_hwnd)
             mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
@@ -471,10 +637,7 @@ class CaptureMixin:
             win32gui.ReleaseDC(self.game_hwnd, hwnd_dc)
 
             if np.mean(img) < 5:
-                self.logger.warning("PrintWindow returned black, falling back to BitBlt")
-                img = self._capture_bitblt(rect, w, h)
-                if img is None:
-                    return self.last_screenshot if self.last_screenshot is not None else np.zeros((1920, 1080, 3), dtype=np.uint8)
+                return self.last_screenshot if self.last_screenshot is not None else np.zeros((1920, 1080, 3), dtype=np.uint8)
 
             if off_x > 0 or off_y > 0:
                 img = img[off_y:off_y + ch, off_x:off_x + cw]
@@ -486,6 +649,28 @@ class CaptureMixin:
         except Exception as e:
             self.logger.error(f"Screenshot failed: {e}")
             return self.last_screenshot if self.last_screenshot is not None else np.zeros((1920, 1080, 3), dtype=np.uint8)
+
+    def _capture_bitblt_client(self, x: int, y: int, w: int, h: int) -> Optional[np.ndarray]:
+        try:
+            hdesktop = win32gui.GetDesktopWindow()
+            desktop_dc = win32gui.GetWindowDC(hdesktop)
+            img_dc = win32ui.CreateDCFromHandle(desktop_dc)
+            mem_dc = img_dc.CreateCompatibleDC()
+            screenshot = win32ui.CreateBitmap()
+            screenshot.CreateCompatibleBitmap(img_dc, w, h)
+            mem_dc.SelectObject(screenshot)
+            mem_dc.BitBlt((0, 0), (w, h), img_dc, (x, y), win32con.SRCCOPY | CAPTUREBLT)
+            bmpinfo = screenshot.GetInfo()
+            bmpstr = screenshot.GetBitmapBits(True)
+            img = np.frombuffer(bmpstr, dtype='uint8').reshape((bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4))
+            img = cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_BGRA2BGR)
+            win32gui.DeleteObject(screenshot.GetHandle())
+            mem_dc.DeleteDC()
+            img_dc.DeleteDC()
+            win32gui.ReleaseDC(hdesktop, desktop_dc)
+            return img
+        except Exception:
+            return None
 
     def _capture_bitblt(self, rect, w, h) -> Optional[np.ndarray]:
         try:

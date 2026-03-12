@@ -31,6 +31,7 @@ logs/
 *.log
 
 # Personal config
+config/config.json
 config_custom.json
 *.local.json
 updater_token.txt

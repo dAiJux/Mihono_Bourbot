@@ -38631,6 +38631,23 @@
                     }
                 }
             }
+        },
+        "Tutorial": {
+            "choices": {
+                "1": {
+                    "description": "",
+                    "effects": {},
+                    "skills": [],
+                    "conditions": []
+                },
+                "2": {
+                    "description": "Skip tutorial",
+                    "effects": {},
+                    "skills": [],
+                    "conditions": []
+                }
+            },
+            "preferred_choice": 2
         }
     }
 }

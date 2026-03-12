@@ -9,7 +9,7 @@ import win32gui
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import List
-from ..vision.ocr import _ocr_text_raw
+from ..vision.ocr import _ocr_text_raw, _ocr_text_horizontal
 from ..models import GameScreen
 
 try:
@@ -311,7 +311,7 @@ class SkillsMixin:
             dark_pct = float((th > 0).sum()) / max(1, th.size) * 100
             if 2.0 <= dark_pct <= 20.0:
                 try:
-                    candidate = _ocr_text_raw(th).strip()
+                    candidate = _ocr_text_horizontal(th).strip()
                     if len(candidate) > len(best_raw):
                         best_raw = candidate
                 except Exception:
@@ -319,7 +319,7 @@ class SkillsMixin:
         if not best_raw:
             _, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             try:
-                best_raw = _ocr_text_raw(th).strip()
+                best_raw = _ocr_text_horizontal(th).strip()
             except Exception:
                 pass
 

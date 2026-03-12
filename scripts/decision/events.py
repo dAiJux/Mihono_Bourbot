@@ -56,30 +56,36 @@ class EventDecisionMixin:
                 ratio = max(ratio, 0.5 + word_ratio * 0.4)
         return ratio
 
-    def _find_event_match(self, text_lower: str, event_database: dict):
+    def _find_event_match(self, text_lower: str, event_database: dict,
+                           event_type: str = None):
         best_data = None
         best_source = ""
         best_ratio = 0.0
 
-        for char_name, char_events in event_database.get("character_events", {}).items():
-            for event_name, data in char_events.items():
-                ratio = self._fuzzy_match(event_name, text_lower)
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_data = data
-                    best_source = f"character ({char_name}): {event_name}"
-                    if ratio >= 1.0:
-                        return best_data, best_source, best_ratio
+        search_character = event_type in (None, "choice", "scenario", "trainee")
+        search_support = event_type in (None, "choice", "support")
 
-        for card_name, card_data in event_database.get("support_card_events", {}).items():
-            for event_name, data in card_data.get("events", {}).items():
-                ratio = self._fuzzy_match(event_name, text_lower)
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_data = data
-                    best_source = f"support ({card_name}): {event_name}"
-                    if ratio >= 1.0:
-                        return best_data, best_source, best_ratio
+        if search_character:
+            for char_name, char_events in event_database.get("character_events", {}).items():
+                for event_name, data in char_events.items():
+                    ratio = self._fuzzy_match(event_name, text_lower)
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_data = data
+                        best_source = f"character ({char_name}): {event_name}"
+                        if ratio >= 1.0:
+                            return best_data, best_source, best_ratio
+
+        if search_support:
+            for card_name, card_data in event_database.get("support_card_events", {}).items():
+                for event_name, data in card_data.get("events", {}).items():
+                    ratio = self._fuzzy_match(event_name, text_lower)
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_data = data
+                        best_source = f"support ({card_name}): {event_name}"
+                        if ratio >= 1.0:
+                            return best_data, best_source, best_ratio
 
         for event_name, data in event_database.get("common_events", {}).items():
             ratio = self._fuzzy_match(event_name, text_lower)
@@ -94,17 +100,20 @@ class EventDecisionMixin:
             return best_data, best_source, best_ratio
         return None, "", best_ratio
 
-    def get_title_match_ratio(self, title: str, event_database: dict) -> float:
-        _, _, ratio = self._find_event_match(title.lower().strip(), event_database)
+    def get_title_match_ratio(self, title: str, event_database: dict,
+                              event_type: str = None) -> float:
+        _, _, ratio = self._find_event_match(title.lower().strip(), event_database,
+                                             event_type)
         return ratio
 
     def decide_event_choice(
-        self, event_text: str, event_database: dict, screenshot=None
+        self, event_text: str, event_database: dict, screenshot=None,
+        event_type: str = None,
     ) -> int:
         text_lower = event_text.lower().strip()
 
         matched_data, matched_source, match_ratio = self._find_event_match(
-            text_lower, event_database
+            text_lower, event_database, event_type
         )
 
         if matched_data:

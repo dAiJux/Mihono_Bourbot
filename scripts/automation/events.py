@@ -3,6 +3,21 @@ from ..models import GameScreen
 
 class EventMixin:
 
+    def _find_event_choices(self, screenshot, gx, gy, gw, gh, threshold=0.75):
+        ec = self.vision._calibration.get("event_choices", {})
+        choice_y_min = gy + int(gh * ec.get("y1", 0.35))
+        choice_y_max = gy + int(gh * ec.get("y2", 0.85))
+        raw = self.vision.find_all_template("event_choice", screenshot, threshold=threshold, min_distance=30)
+        choices = [c for c in raw if gx <= c[0] <= gx + gw and choice_y_min <= c[1] <= choice_y_max]
+        self._choices_from_icons = False
+        if not choices:
+            icons = self.vision.find_all_template("event_choice_icon", screenshot, threshold=0.70, min_distance=30)
+            choices = [c for c in icons if gx <= c[0] <= gx + gw and choice_y_min <= c[1] <= choice_y_max]
+            if choices:
+                self._choices_from_icons = True
+        choices.sort(key=lambda pos: pos[1])
+        return choices
+
     def _is_tutorial_event(self, event_text: str, num_choices: int) -> bool:
         text_lower = event_text.lower() if event_text else ""
         if "tutorial" in text_lower:
@@ -30,6 +45,12 @@ class EventMixin:
             self.logger.critical("CAREER COMPLETE detected — aborting event handling!")
             return False
 
+        event_band = self.vision._detect_event_band(screenshot)
+        event_type = event_band[0] if event_band else None
+        band_pos = event_band[1] if event_band else None
+        band_tpl = event_band[3] if event_band else None
+        self.logger.info(f"Event band type: {event_type}")
+
         screen_check = self.vision.detect_screen(screenshot)
         if screen_check not in (GameScreen.EVENT, GameScreen.UNKNOWN,
                                 GameScreen.INSUFFICIENT_FANS, GameScreen.SCHEDULED_RACE_POPUP):
@@ -38,7 +59,7 @@ class EventMixin:
             self._consecutive_event_count = 0
             return False
 
-        event_title = self.vision.read_event_title(screenshot)
+        event_title = self.vision.read_event_title(screenshot, band_pos, band_tpl)
         event_text = self.vision.read_event_text(screenshot)
         match_text = f"{event_title} {event_text}".strip() if event_title else event_text
 
@@ -46,7 +67,7 @@ class EventMixin:
 
         TITLE_GUARD_THRESHOLD = 0.55
         if event_title and len(event_title.strip()) > 3:
-            title_ratio = self.decision.get_title_match_ratio(event_title, event_database)
+            title_ratio = self.decision.get_title_match_ratio(event_title, event_database, event_type)
             if title_ratio < TITLE_GUARD_THRESHOLD:
                 title_key = event_title.lower().strip()
                 if title_key == self._last_event_title:
@@ -71,15 +92,7 @@ class EventMixin:
                 self._consecutive_event_count = 0
 
         gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
-        ec = self.vision._calibration.get("event_choices", {})
-        choice_y_min = gy + int(gh * ec.get("y1", 0.35))
-        choice_y_max = gy + int(gh * ec.get("y2", 0.85))
-        raw_choices = self.vision.find_all_template("event_choice", screenshot, threshold=0.75, min_distance=30)
-        choices = [
-            c for c in raw_choices
-            if gx <= c[0] <= gx + gw and choice_y_min <= c[1] <= choice_y_max
-        ]
-        choices.sort(key=lambda pos: pos[1])
+        choices = self._find_event_choices(screenshot, gx, gy, gw, gh)
         if len(choices) > 5:
             self.logger.warning(f"Too many choices detected ({len(choices)}), likely false positives — ignoring")
             return False
@@ -89,20 +102,18 @@ class EventMixin:
             for attempt in range(4):
                 self.wait(1.5)
                 screenshot = self.vision.take_screenshot()
-                event_type = self.vision.detect_event_type(screenshot)
+                event_band = self.vision._detect_event_band(screenshot)
+                event_type = event_band[0] if event_band else None
+                band_pos = event_band[1] if event_band else None
+                band_tpl = event_band[3] if event_band else None
                 if not event_type:
                     self.logger.info("Event window disappeared during wait — auto-resolved")
                     return True
                 gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
-                raw_choices = self.vision.find_all_template("event_choice", screenshot, threshold=0.75, min_distance=30)
-                choices = [
-                    c for c in raw_choices
-                    if gx <= c[0] <= gx + gw and choice_y_min <= c[1] <= choice_y_max
-                ]
-                choices.sort(key=lambda pos: pos[1])
+                choices = self._find_event_choices(screenshot, gx, gy, gw, gh)
                 if 1 <= len(choices) <= 5:
                     self.logger.info(f"Choices appeared after {(attempt + 1) * 1.5:.1f}s wait ({len(choices)} found)")
-                    event_title = self.vision.read_event_title(screenshot)
+                    event_title = self.vision.read_event_title(screenshot, band_pos, band_tpl)
                     event_text = self.vision.read_event_text(screenshot)
                     match_text = f"{event_title} {event_text}".strip() if event_title else event_text
                     break
@@ -112,7 +123,8 @@ class EventMixin:
 
         self.logger.info(f"Found {len(choices)} event choices, text: {match_text[:80] if match_text else 'N/A'}")
 
-        choice_texts = self.vision.read_choice_texts(screenshot, choices)
+        icon_pos = choices if getattr(self, '_choices_from_icons', False) else None
+        choice_texts = self.vision.read_choice_texts(screenshot, choices, icon_pos)
         for i, ct in enumerate(choice_texts):
             self.logger.info(f"  Choice {i + 1} at {choices[i]}: '{ct}'")
 
@@ -127,14 +139,7 @@ class EventMixin:
         is_tutorial_body = self._is_tutorial_event(event_text, len(choices))
 
         if (is_tutorial_title or is_tutorial_body) and len(choices) <= 2:
-            extra_choices = self.vision.find_all_template(
-                "event_choice", screenshot, threshold=0.55, min_distance=30
-            )
-            extra_valid = [
-                c for c in extra_choices
-                if gx <= c[0] <= gx + gw and choice_y_min <= c[1] <= choice_y_max
-            ]
-            extra_valid.sort(key=lambda pos: pos[1])
+            extra_valid = self._find_event_choices(screenshot, gx, gy, gw, gh, threshold=0.55)
             new_in_extra = [c for c in extra_valid if all(
                 abs(c[0] - ex[0]) > 20 or abs(c[1] - ex[1]) > 20 for ex in choices
             )]
@@ -143,7 +148,7 @@ class EventMixin:
                     f"Tutorial: found {len(new_in_extra)} extra choices with lower threshold"
                 )
                 choices = sorted(choices + new_in_extra, key=lambda p: p[1])
-                choice_texts = self.vision.read_choice_texts(screenshot, choices)
+                choice_texts = self.vision.read_choice_texts(screenshot, choices, icon_pos)
                 for i, ct in enumerate(choice_texts):
                     self.logger.info(f"  Choice {i + 1} at {choices[i]}: '{ct}'")
                 skip_idx = self._find_tutorial_skip_index(choice_texts)
@@ -166,7 +171,8 @@ class EventMixin:
             self.logger.warning("Could not read event text — using visual skill detection")
             choice = self._decide_event_visually(screenshot)
         else:
-            choice = self.decision.decide_event_choice(match_text, event_database, screenshot)
+            choice = self.decision.decide_event_choice(match_text, event_database, screenshot,
+                                                        event_type=event_type)
 
         self.logger.info(f"Selecting choice {choice}/{len(choices)}")
         idx = min(choice - 1, len(choices) - 1)
@@ -177,15 +183,7 @@ class EventMixin:
         event_type = self.vision.detect_event_type(screenshot)
         if event_type:
             gx2, gy2, gw2, gh2 = self.vision.get_game_rect(screenshot)
-            ec2 = self.vision._calibration.get("event_choices", {})
-            cy_min2 = gy2 + int(gh2 * ec2.get("y1", 0.35))
-            cy_max2 = gy2 + int(gh2 * ec2.get("y2", 0.85))
-            sub_raw = self.vision.find_all_template("event_choice", screenshot, threshold=0.75, min_distance=30)
-            sub_choices = [
-                c for c in sub_raw
-                if gx2 <= c[0] <= gx2 + gw2 and cy_min2 <= c[1] <= cy_max2
-            ]
-            sub_choices.sort(key=lambda pos: pos[1])
+            sub_choices = self._find_event_choices(screenshot, gx2, gy2, gw2, gh2)
             if sub_choices:
                 self.logger.info(f"Sub-choices detected ({len(sub_choices)}) — clicking first to confirm")
                 self.click_with_offset(*sub_choices[0])
@@ -200,8 +198,8 @@ class EventMixin:
         return True
 
     def _decide_event_visually(self, screenshot) -> int:
-        choices = self.vision.find_all_template("event_choice", screenshot, threshold=0.7)
-        choices.sort(key=lambda pos: pos[1])
+        gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+        choices = self._find_event_choices(screenshot, gx, gy, gw, gh, threshold=0.7)
         if not choices:
             return 1
 

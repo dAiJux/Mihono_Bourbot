@@ -34,7 +34,7 @@ def _ocr_digits(img_np: np.ndarray) -> str:
 def _ocr_text_raw(img_np: np.ndarray) -> str:
     reader = _get_reader()
     results = reader.readtext(img_np, text_threshold=0.3)
-    results.sort(key=lambda r: r[0][0][1])
+    results.sort(key=lambda r: (r[0][0][1], r[0][0][0]))
     return ' '.join(r[1] for r in results)
 
 
@@ -96,17 +96,22 @@ class OcrMixin:
             rx, ry, rwr, rhr = defaults[stat_name]
             x, y = gx + int(gw * rx * xf), gy + int(gh * ry)
             rw, rh = int(gw * rwr * xf), int(gh * rhr)
-        roi = screenshot[y:y+rh, x:x+rw]
+        if rh < 20:
+            pad = max(2, rh // 3)
+            y = max(0, y - pad)
+            rh = rh + 2 * pad
+        sh, sw = screenshot.shape[:2]
+        roi = screenshot[max(0, y):min(sh, y + rh), max(0, x):min(sw, x + rw)]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        scale = 3
+        scale = max(3, 50 // max(rh, 1))
+        big_gray = cv2.resize(gray, (gray.shape[1] * scale, gray.shape[0] * scale),
+                               interpolation=cv2.INTER_LANCZOS4)
         try:
             reader = _get_reader()
             best_val = 0
             best_conf = 0.0
             for thresh_val in (160, 140, 200):
-                _, thresh = cv2.threshold(gray, thresh_val, 255, cv2.THRESH_BINARY_INV)
-                big = cv2.resize(thresh, (thresh.shape[1] * scale, thresh.shape[0] * scale),
-                                 interpolation=cv2.INTER_CUBIC)
+                _, big = cv2.threshold(big_gray, thresh_val, 255, cv2.THRESH_BINARY_INV)
                 raw = reader.readtext(big, detail=1, allowlist='0123456789')
                 for (_, text, conf) in raw:
                     digits = ''.join(c for c in text if c.isdigit())
@@ -215,7 +220,9 @@ class OcrMixin:
         self.logger.info(f"Mood color: bad (median H={median_h:.0f})")
         return "bad"
 
-    def read_event_title(self, screenshot: np.ndarray) -> str:
+    def read_event_title(self, screenshot: np.ndarray,
+                         band_pos: Tuple[int, int] = None,
+                         band_tpl_name: str = None) -> str:
         gx, gy, gw, gh = self.get_game_rect(screenshot)
         xf = self._aspect_x_factor(gw, gh)
         et = self._calibration.get("event_title", {})
@@ -223,13 +230,35 @@ class OcrMixin:
         y2 = gy + int(gh * et.get("y2", 0.22))
         x1 = gx + int(gw * et.get("x1", 0.10) * xf)
         x2 = gx + int(gw * et.get("x2", 0.90) * xf)
-        title_roi = screenshot[y1:y2, x1:x2]
-        if title_roi.size == 0:
+        title = self._ocr_title_roi(screenshot, x1, y1, x2, y2)
+        if title:
+            return title
+
+        if band_pos and band_tpl_name:
+            self._update_scale(screenshot)
+            tpl = self._get_scaled_template(band_tpl_name)
+            if tpl is not None:
+                tpl_h = tpl.shape[0]
+                band_bottom = band_pos[1] + tpl_h // 2 + 2
+                fb_y1 = band_bottom
+                fb_y2 = band_bottom + int(gh * 0.05)
+                fb_x1 = gx + int(gw * 0.10 * xf)
+                fb_x2 = gx + int(gw * 0.80 * xf)
+                self.logger.debug(f"Title fallback zone: ({fb_x1},{fb_y1})-({fb_x2},{fb_y2})")
+                title = self._ocr_title_roi(screenshot, fb_x1, fb_y1, fb_x2, fb_y2)
+                if title:
+                    return title
+        return ""
+
+    def _ocr_title_roi(self, screenshot: np.ndarray,
+                        x1: int, y1: int, x2: int, y2: int) -> str:
+        roi = screenshot[y1:y2, x1:x2]
+        if roi.size == 0:
             return ""
         try:
             Path("logs/debug").mkdir(parents=True, exist_ok=True)
-            cv2.imwrite("logs/debug/event_title_roi.png", title_roi)
-            gray = cv2.cvtColor(title_roi, cv2.COLOR_BGR2GRAY)
+            cv2.imwrite("logs/debug/event_title_roi.png", roi)
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
             _, thresh_light = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
             _, thresh_dark = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
             text_light = _ocr_text_horizontal(thresh_light).strip()
@@ -365,27 +394,55 @@ class OcrMixin:
         except Exception:
             return ""
 
-    def read_choice_texts(self, screenshot: np.ndarray, choice_positions: List[Tuple[int, int]]) -> List[str]:
+    def read_choice_texts(self, screenshot: np.ndarray,
+                          choice_positions: List[Tuple[int, int]],
+                          icon_positions: List[Tuple[int, int]] = None) -> List[str]:
         h, w = screenshot.shape[:2]
+        gx, gy, gw, gh = self.get_game_rect(screenshot)
+        self._update_scale(screenshot)
+        tpl_icon = self._get_scaled_template("event_choice_icon")
+        icon_half_h = (tpl_icon.shape[0] // 2 + 4) if tpl_icon is not None else 28
+        icon_half_w = (tpl_icon.shape[1] // 2 + 4) if tpl_icon is not None else 28
+        tpl_band = self._get_scaled_template("event_choice")
+        band_half_h = (tpl_band.shape[0] // 2) if tpl_band is not None else 42
         texts = []
-        for cx, cy in choice_positions:
-            roi_left = max(0, int(cx - w * 0.30))
-            roi_right = min(w, int(cx + w * 0.30))
-            roi_top = max(0, cy - 25)
-            roi_bottom = min(h, cy + 25)
-            roi = screenshot[roi_top:roi_bottom, roi_left:roi_right]
-            if roi.size == 0:
-                texts.append("")
-                continue
-            try:
-                gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
-                text = _ocr_text_raw(thresh).strip()
-                texts.append(text)
-            except Exception:
-                texts.append("")
+        for i, (cx, cy) in enumerate(choice_positions):
+            if icon_positions is not None:
+                half_h = icon_half_h
+            else:
+                half_h = band_half_h
+            roi_top = max(0, cy - half_h)
+            roi_left = max(0, gx + int(gw * 0.10))
+            roi_right = min(w, gx + gw - int(gw * 0.02))
+            roi_bottom = min(h, cy + half_h)
+            text = self._ocr_choice_roi(screenshot, roi_left, roi_top, roi_right, roi_bottom)
+            if not text and icon_positions and i < len(icon_positions):
+                ix, iy = icon_positions[i]
+                fb_left = max(0, ix + icon_half_w)
+                fb_right = min(w, gx + gw - int(gw * 0.02))
+                fb_top = max(0, iy - icon_half_h)
+                fb_bottom = min(h, iy + int(gh * 0.05))
+                self.logger.debug(f"Choice {i+1} fallback: ({fb_left},{fb_top})-({fb_right},{fb_bottom})")
+                text = self._ocr_choice_roi(screenshot, fb_left, fb_top, fb_right, fb_bottom)
+            texts.append(text)
         self.logger.debug(f"Choice texts: {texts}")
         return texts
+
+    def _ocr_choice_roi(self, screenshot: np.ndarray,
+                         x1: int, y1: int, x2: int, y2: int) -> str:
+        roi = screenshot[y1:y2, x1:x2]
+        if roi.size == 0:
+            return ""
+        try:
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            scale = max(1, 2 * 600 // max(1, roi.shape[1]))
+            if scale > 1:
+                gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
+            text = _ocr_text_raw(thresh).strip()
+            return text
+        except Exception:
+            return ""
 
     def read_stats(self, screenshot: np.ndarray) -> Optional[Dict[str, int]]:
         stats = self.read_all_stats(screenshot)

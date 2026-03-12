@@ -554,7 +554,9 @@ class BotLauncher(tk.Tk):
         try:
             import win32gui as _wg
             import win32ui as _wu
+            import win32con as _wc
             import ctypes as _ct
+            import ctypes.wintypes
             import numpy as _np
 
             rect = _wg.GetWindowRect(hwnd)
@@ -564,35 +566,83 @@ class BotLauncher(tk.Tk):
                 self._preview_label.configure(image="", text="Window has no size")
                 return
 
+            try:
+                win_dpi = _ct.windll.user32.GetDpiForWindow(hwnd)
+            except Exception:
+                win_dpi = 96
+            try:
+                sys_dpi = _ct.windll.user32.GetDpiForSystem()
+            except Exception:
+                sys_dpi = 96
+
+            try:
+                hmon = _ct.windll.user32.MonitorFromWindow(hwnd, 2)
+                dpiX = _ct.wintypes.UINT()
+                _ct.windll.shcore.GetDpiForMonitor(
+                    hmon, 0, _ct.byref(dpiX),
+                    _ct.byref(_ct.wintypes.UINT()),
+                )
+                mon_dpi = dpiX.value if dpiX.value > 0 else sys_dpi
+            except Exception:
+                mon_dpi = sys_dpi
+
             client_rect = _wg.GetClientRect(hwnd)
-            cw, ch = client_rect[2], client_rect[3]
             client_origin = _wg.ClientToScreen(hwnd, (0, 0))
-            off_x = client_origin[0] - rect[0]
-            off_y = client_origin[1] - rect[1]
+            cx, cy = client_origin
+            raw_cw, raw_ch = client_rect[2], client_rect[3]
 
-            hwnd_dc = _wg.GetWindowDC(hwnd)
-            mfc_dc = _wu.CreateDCFromHandle(hwnd_dc)
-            save_dc = mfc_dc.CreateCompatibleDC()
-            bitmap = _wu.CreateBitmap()
-            bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
-            save_dc.SelectObject(bitmap)
+            display_cw = max(1, int(raw_cw * sys_dpi / mon_dpi)) if mon_dpi > 0 else raw_cw
+            display_ch = max(1, int(raw_ch * sys_dpi / mon_dpi)) if mon_dpi > 0 else raw_ch
 
-            _ct.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 0x00000002)
+            img = None
+            if mon_dpi != sys_dpi:
+                try:
+                    hdesktop = _wg.GetDesktopWindow()
+                    desktop_dc = _wg.GetWindowDC(hdesktop)
+                    img_dc = _wu.CreateDCFromHandle(desktop_dc)
+                    mem_dc = img_dc.CreateCompatibleDC()
+                    bmp = _wu.CreateBitmap()
+                    bmp.CreateCompatibleBitmap(img_dc, raw_cw, raw_ch)
+                    mem_dc.SelectObject(bmp)
+                    mem_dc.BitBlt((0, 0), (raw_cw, raw_ch), img_dc, (cx, cy), _wc.SRCCOPY | 0x40000000)
+                    info = bmp.GetInfo()
+                    data = bmp.GetBitmapBits(True)
+                    img = _np.frombuffer(data, dtype=_np.uint8).reshape((info["bmHeight"], info["bmWidth"], 4))
+                    _wg.DeleteObject(bmp.GetHandle())
+                    mem_dc.DeleteDC()
+                    img_dc.DeleteDC()
+                    _wg.ReleaseDC(hdesktop, desktop_dc)
+                    if _np.mean(img) < 5:
+                        img = None
+                except Exception:
+                    img = None
 
-            bmp_info = bitmap.GetInfo()
-            bmp_data = bitmap.GetBitmapBits(True)
-            img = _np.frombuffer(bmp_data, dtype=_np.uint8)
-            img = img.reshape((bmp_info["bmHeight"], bmp_info["bmWidth"], 4))
+            if img is None:
+                render_scale = (win_dpi / sys_dpi) if sys_dpi > 0 else 1.0
+                phys_w = max(1, int(w * render_scale))
+                phys_h = max(1, int(h * render_scale))
+                cw = max(1, int(raw_cw * render_scale))
+                ch = max(1, int(raw_ch * render_scale))
+                off_x = max(0, int((cx - rect[0]) * render_scale))
+                off_y = max(0, int((cy - rect[1]) * render_scale))
 
-            _wg.DeleteObject(bitmap.GetHandle())
-            save_dc.DeleteDC()
-            mfc_dc.DeleteDC()
-            _wg.ReleaseDC(hwnd, hwnd_dc)
-
-            if off_x > 0 or off_y > 0:
-                img = img[off_y:off_y + ch, off_x:off_x + cw]
-            else:
-                cw, ch = img.shape[1], img.shape[0]
+                hwnd_dc = _wg.GetWindowDC(hwnd)
+                mfc_dc = _wu.CreateDCFromHandle(hwnd_dc)
+                save_dc = mfc_dc.CreateCompatibleDC()
+                bitmap = _wu.CreateBitmap()
+                bitmap.CreateCompatibleBitmap(mfc_dc, phys_w, phys_h)
+                save_dc.SelectObject(bitmap)
+                _ct.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 0x00000002)
+                bmp_info = bitmap.GetInfo()
+                bmp_data = bitmap.GetBitmapBits(True)
+                img = _np.frombuffer(bmp_data, dtype=_np.uint8)
+                img = img.reshape((bmp_info["bmHeight"], bmp_info["bmWidth"], 4))
+                _wg.DeleteObject(bitmap.GetHandle())
+                save_dc.DeleteDC()
+                mfc_dc.DeleteDC()
+                _wg.ReleaseDC(hwnd, hwnd_dc)
+                if off_x > 0 or off_y > 0:
+                    img = img[off_y:off_y + ch, off_x:off_x + cw]
 
             from PIL import Image, ImageTk
             pil_img = Image.frombuffer(
@@ -604,7 +654,7 @@ class BotLauncher(tk.Tk):
 
             self._preview_label.configure(image=photo, text="")
             self._preview_image = photo
-            self._resolution_var.set(f"Client area: {cw} \u00d7 {ch} px")
+            self._resolution_var.set(f"Client area: {display_cw} \u00d7 {display_ch} px")
         except Exception as e:
             self._preview_label.configure(image="", text=f"Preview failed: {e}")
             self._resolution_var.set("")

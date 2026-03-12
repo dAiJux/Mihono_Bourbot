@@ -12,9 +12,12 @@ from .ocr import OcrMixin
 from .training import TrainingAnalysisMixin
 
 try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
-    ctypes.windll.user32.SetProcessDPIAware()
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin):
     GAME_WINDOW_TITLES = ["umamusume", "ウマ娘", "pretty derby", "dmm"]
@@ -35,8 +38,12 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         "mood_great": "mood_zone", "mood_good": "mood_zone",
         "mood_normal": "mood_zone", "mood_bad": "mood_zone",
         "mood_awful": "mood_zone",
-        "btn_infirmary": "btn_infirmary",
-        "btn_rest_summer": "btn_rest",
+        "btn_training": "main_buttons",
+        "btn_rest": "main_buttons",
+        "btn_rest_summer": "main_buttons",
+        "btn_recreation": "main_buttons",
+        "btn_races": "main_buttons",
+        "btn_infirmary": "main_buttons",
         "race_view_results_on": "race_view_results",
         "race_view_results_off": "race_view_results",
         "training_selected": "training_zone",
@@ -54,6 +61,7 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         "event_trainee_window": "event_type_window",
         "event_support_window": "event_type_window",
         "event_choice": "event_choices",
+        "event_choice_icon": "event_choices",
         "btn_race_start_ura": "btn_race_start",
     }
 
@@ -63,13 +71,13 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         "burst_white": "white_burst",
     }
 
-    _GRAYSCALE_TEMPLATES: set = set()
+    _GRAYSCALE_TEMPLATES: set = {"event_choice_icon"}
 
     _STRUCTURAL_TEMPLATES = {"event_choice"}
     
     _CHARACTER_OVERLAY_TEMPLATES = {
-        "btn_training", "btn_races", "complete_career",
-        "btn_race_next_finish", "btn_recreation"
+        "complete_career",
+        "btn_race_next_finish",
     }
 
     _GOAL_HUE_LO = 5
@@ -140,23 +148,72 @@ class VisionModule(CaptureMixin, DetectionMixin, OcrMixin, TrainingAnalysisMixin
         if gw == self._scaled_for_width:
             return
         self._scaled_for_width = gw
-        if self._ref_height and self._ref_height > 0:
-            ref_aspect = self._ref_width / self._ref_height
-            game_aspect = gw / max(1, gh)
-            if abs(game_aspect - ref_aspect) / max(0.01, ref_aspect) > 0.05:
-                self._current_scale = gh / self._ref_height
-            else:
-                self._current_scale = gw / self._ref_width
+        platform = self.config.get("platform", "google_play")
+        if platform in self._TRANSFORMED_PLATFORMS:
+            self._current_scale = self._find_best_scale(screenshot)
         else:
             self._current_scale = gw / self._ref_width
+        self.templates.clear()
         if abs(self._current_scale - 1.0) > 0.01:
             self.logger.info("Template scale: %.3f (game %dx%d, ref %dx%d)",
                              self._current_scale, gw, gh,
                              self._ref_width, self._ref_height or 0)
-            self.templates.clear()
+
+    def _find_best_scale(self, screenshot: np.ndarray) -> float:
+        gx, gy, gw, gh = self.get_game_rect(screenshot)
+        game_area = screenshot[gy:gy + gh, gx:gx + gw]
+        anchors = []
+        for name in self._CALIBRATION_TEMPLATES:
+            fn = self._TPL_FILE_ALIASES.get(name, name)
+            if fn not in self._raw_templates:
+                path = self.get_template_path(fn)
+                if path is None:
+                    continue
+                img = cv2.imread(str(path))
+                if img is None:
+                    continue
+                self._raw_templates[fn] = img
+            anchors.append(self._raw_templates[fn])
+        if not anchors:
+            return gw / self._ref_width
+        base = gw / self._ref_width
+        candidates = sorted(set(
+            round(base + d, 3)
+            for d in [-0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2]
+            if base + d > 0.3
+        ))
+        if abs(base - 1.0) > 0.05 and 1.0 not in candidates:
+            candidates.append(1.0)
+            candidates.sort()
+        best_scale, best_score = base, 0.0
+        for scale in candidates:
+            total = 0.0
+            count = 0
+            for tpl in anchors:
+                nw = max(1, int(tpl.shape[1] * scale))
+                nh = max(1, int(tpl.shape[0] * scale))
+                if nh > game_area.shape[0] or nw > game_area.shape[1]:
+                    continue
+                interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+                scaled = cv2.resize(tpl, (nw, nh), interpolation=interp)
+                res = cv2.matchTemplate(game_area, scaled, cv2.TM_CCOEFF_NORMED)
+                _, mv, _, _ = cv2.minMaxLoc(res)
+                total += mv
+                count += 1
+            if count > 0:
+                avg = total / count
+                if avg > best_score:
+                    best_score = avg
+                    best_scale = scale
+        self.logger.info("Platform scale search: base=%.3f → best=%.3f (score=%.3f)",
+                         base, best_scale, best_score)
+        if best_score < 0.65:
+            self.logger.info("Scale score too low (%.3f < 0.65), using native scale 1.0",
+                             best_score)
+            return 1.0
+        return best_scale
 
     def _scale_px(self, px: int) -> int:
-        """Scale a pixel value by the current resolution factor."""
         return max(1, int(round(px * self._current_scale)))
 
     _CALIBRATION_TEMPLATES = [
