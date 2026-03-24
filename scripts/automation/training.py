@@ -8,6 +8,28 @@ from typing import Dict, Tuple
 
 from ..models import GameScreen
 
+_POLL = 0.07
+_EVENT_WINDOWS = ("event_scenario_window", "event_trainee_window", "event_support_window")
+_MAIN_BTNS     = ("btn_training", "btn_rest", "btn_recreation")
+_TRAINING_BTNS = ("training_speed", "training_stamina", "training_power")
+
+def _fast_is_main(vision, screenshot) -> bool:
+    return sum(1 for t in _MAIN_BTNS if vision.find_template(t, screenshot, 0.80)) >= 2
+
+def _fast_is_training(vision, screenshot) -> bool:
+    return sum(1 for t in _TRAINING_BTNS if vision.find_template(t, screenshot, 0.60)) >= 2
+
+def _fast_has_event(vision, screenshot) -> bool:
+    return any(vision.find_template(t, screenshot, 0.75) for t in _EVENT_WINDOWS)
+
+def _fast_is_race_start(vision, screenshot) -> bool:
+    return (vision.find_template("btn_race_start", screenshot, 0.70) is not None or
+            vision.find_template("btn_race_start_ura", screenshot, 0.70) is not None)
+
+def _fast_is_unity(vision, screenshot) -> bool:
+    return (vision.find_template("btn_unity_launch", screenshot, 0.75) is not None or
+            vision.find_template("btn_begin_showdown", screenshot, 0.75) is not None)
+
 class TrainingMixin:
 
     def _get_training_positions(self, screenshot: np.ndarray) -> Dict[str, Tuple[int, int]]:
@@ -27,6 +49,76 @@ class TrainingMixin:
             positions[name] = (px, py)
         return positions
 
+    def _wait_for_training_screen(self, timeout: float = 3.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._check_stopped():
+                return False
+            ss = self.vision.take_screenshot()
+            if _fast_is_training(self.vision, ss):
+                return True
+            if _fast_has_event(self.vision, ss):
+                return False
+            time.sleep(_POLL)
+        return False
+
+    def _has_event_window(self, screenshot) -> bool:
+        return _fast_has_event(self.vision, screenshot)
+
+    def _poll_until_main(self, timeout: float = 3.0):
+        """
+        Poll until main screen, handling events along the way.
+        Used after rest and recreation — only outcomes are MAIN and EVENT.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._check_stopped():
+                return
+            ss = self.vision.take_screenshot()
+            if _fast_has_event(self.vision, ss):
+                self.logger.info("An event appeared — handling it.")
+                self.handle_event(self._event_db)
+                deadline = time.time() + 3.0
+                continue
+            if _fast_is_main(self.vision, ss):
+                return
+            time.sleep(_POLL)
+
+    def _poll_until_training_resolved(self, timeout: float = 8.0):
+        """
+        Poll after training confirm is clicked.
+        Possible outcomes: MAIN, EVENT, RACE_START (mandatory race), UNITY.
+        Fast-checks each before falling through to idle wait.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._check_stopped():
+                return
+            ss = self.vision.take_screenshot()
+
+            if _fast_has_event(self.vision, ss):
+                self.logger.info("An event appeared after training — handling it.")
+                self.handle_event(self._event_db)
+                deadline = time.time() + 8.0
+                continue
+
+            if _fast_is_main(self.vision, ss):
+                return
+
+            if _fast_is_race_start(self.vision, ss):
+                self.logger.info("Mandatory race day triggered after training — starting race.")
+                self.execute_race_action("raceday")
+                return
+
+            if _fast_is_unity(self.vision, ss):
+                self.logger.info("Unity Cup triggered after training — running Unity Cup.")
+                self.execute_unity_cup()
+                return
+
+            time.sleep(_POLL)
+        else:
+            self.logger.warning("Timed out waiting to return to main screen after training.")
+
     def execute_training_action(self, training_info=None):
         if isinstance(training_info, dict):
             training_type = training_info.get("stat")
@@ -38,69 +130,74 @@ class TrainingMixin:
             cached_energy = -1
             cached_mood = "unknown"
             cached_stats = None
-        self.logger.info(f"Executing TRAINING (suggested={training_type})...")
 
         screenshot = self.vision.take_screenshot()
-        main_found = sum(
-            1 for tpl in self.vision.MAIN_SCREEN_BUTTONS[:3]
-            if self.vision.find_template(tpl, screenshot, 0.80)
-        )
-        if main_found >= 2:
+
+        if _fast_is_main(self.vision, screenshot):
             screen = GameScreen.MAIN
+        elif _fast_is_training(self.vision, screenshot):
+            screen = GameScreen.TRAINING
+        elif _fast_has_event(self.vision, screenshot):
+            screen = GameScreen.EVENT
         else:
             screen = self.vision.detect_screen(screenshot)
-        self.logger.info(f"Screen before training: {screen.value}")
 
         if screen == GameScreen.EVENT:
-            self.logger.info("Event screen detected before training — handling event first")
+            self.logger.info("An event appeared before training — handling it first.")
             self.handle_event(self._event_db)
-            self.wait(0.5)
+            time.sleep(_POLL)
             screenshot = self.vision.take_screenshot()
-            screen = self.vision.detect_screen(screenshot)
+            if _fast_is_main(self.vision, screenshot):
+                screen = GameScreen.MAIN
+            elif _fast_is_training(self.vision, screenshot):
+                screen = GameScreen.TRAINING
+            else:
+                screen = self.vision.detect_screen(screenshot)
 
         if screen == GameScreen.MAIN:
             if not self.click_button("btn_training", screenshot):
-                self.logger.warning("btn_training not found on MAIN — re-detecting screen")
-                screen = self.vision.detect_screen(screenshot)
-                if screen == GameScreen.EVENT:
-                    self.logger.info("Actually an event screen — handling event")
+                self.logger.warning("Could not find the Training button.")
+                if self.vision.detect_screen(screenshot) == GameScreen.EVENT:
                     self.handle_event(self._event_db)
                     return "failed"
-                self.logger.error("Cannot find Training button on main screen")
                 return "failed"
-            self.wait(1.0)
+            self.logger.info("Opened the training screen.")
+
+            self._wait_for_training_screen(timeout=3.0)
             screenshot = self.vision.take_screenshot()
-            screen = self.vision.detect_screen(screenshot)
+            if _fast_is_training(self.vision, screenshot):
+                screen = GameScreen.TRAINING
+            elif _fast_has_event(self.vision, screenshot):
+                screen = GameScreen.EVENT
+            else:
+                screen = self.vision.detect_screen(screenshot)
 
             race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
             if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup appeared after Training click — launching race instead")
+                self.logger.info("A race popup appeared — heading to the race instead.")
                 self.click_with_offset(*race_popup)
                 self.wait(1.5)
                 return None
 
         if screen == GameScreen.EVENT:
-            self.logger.info("Event appeared after clicking training — handling")
+            self.logger.info("An event appeared after opening training — handling it.")
             self.handle_event(self._event_db)
-            self.wait(0.5)
+            time.sleep(_POLL)
             screenshot = self.vision.take_screenshot()
-            screen = self.vision.detect_screen(screenshot)
+            screen = GameScreen.TRAINING if _fast_is_training(self.vision, screenshot) else self.vision.detect_screen(screenshot)
 
         if screen != GameScreen.TRAINING:
-            self.logger.warning(f"Not on training screen ({screen.value}), attempting navigation")
-
+            self.logger.warning(f"Expected training screen but got '{screen.value}' — trying again.")
             race_popup = self.vision.find_template("btn_race", screenshot, 0.80)
             if race_popup and not self.vision.find_template("btn_race_launch", screenshot, 0.75):
-                self.logger.info("Scheduled race popup detected mid-training — launching race")
                 self.click_with_offset(*race_popup)
                 self.wait(1.5)
                 return None
-
             if self.click_button("btn_training", screenshot):
-                self.wait(1.0)
+                self._wait_for_training_screen(timeout=3.0)
                 screenshot = self.vision.take_screenshot()
             else:
-                self.logger.error("Cannot reach training screen")
+                self.logger.error("Could not reach the training screen.")
                 return "failed"
 
         date_info = self.decision._get_cached_date(screenshot)
@@ -112,20 +209,16 @@ class TrainingMixin:
 
         template_positions = self.vision.get_training_options(screenshot)
         found_templates = {k: v for k, v in template_positions.items() if v is not None}
-        self.logger.info(f"Template-matched icons: {list(found_templates.keys())} ({len(found_templates)}/5)")
+        self.logger.info(f"Training icons detected: {list(found_templates.keys())}")
 
         fallback_positions = self._get_training_positions(screenshot)
-
         icon_positions = {}
         for name in ["speed", "stamina", "power", "guts", "wit"]:
             tpl_pos = found_templates.get(name)
             fb_pos = fallback_positions[name]
             if tpl_pos:
                 gx, _, gw, _ = self.vision.get_game_rect(screenshot)
-                if gx <= tpl_pos[0] <= gx + gw:
-                    icon_positions[name] = tpl_pos
-                else:
-                    icon_positions[name] = fb_pos
+                icon_positions[name] = tpl_pos if gx <= tpl_pos[0] <= gx + gw else fb_pos
             else:
                 icon_positions[name] = fb_pos
 
@@ -137,30 +230,24 @@ class TrainingMixin:
         energy_low = self.config.get("thresholds", {}).get("energy_low", 40)
 
         if energy < energy_training:
-            self.logger.info(
-                f"Energy low ({energy:.0f}% < {energy_training}%) — checking wit only"
-            )
+            self.logger.info(f"Energy too low ({energy:.0f}%) — checking Wit training only.")
             wit_pos = icon_positions.get("wit", fallback_positions["wit"])
             self.click_with_offset(*wit_pos)
-            self.wait(0.7)
+            time.sleep(0.35)
             screenshot = self.vision.take_screenshot()
             wit_info = self.decision.score_single_training("wit", screenshot, is_pre_summer)
             wit_score = wit_info.get("score", 0)
-
             if energy >= energy_low and wit_score >= 25:
-                self.logger.info(
-                    f"Wit has {wit_score}pts >= 25 — Wit restores energy, proceeding"
-                )
+                self.logger.info(f"Wit is worthwhile (score: {wit_score:.0f}) — training Wit.")
                 self._last_selected_training = "wit"
                 self.click_with_offset(*wit_pos)
-                self.wait(0.5)
+                time.sleep(_POLL)
                 return None
             else:
-                self.logger.info(
-                    f"Energy {energy:.0f}% and wit {wit_score}pts — aborting to REST"
-                )
+                result = "rest_summer" if is_summer else "rest"
+                self.logger.info(f"Wit not worth it (score: {wit_score:.0f}) — resting instead.")
                 self.navigate_to_main_screen(screenshot)
-                return "rest_summer" if is_summer else "rest"
+                return result
 
         pre_selected = self._last_selected_training or "speed"
         others = [n for n in icon_positions if n != pre_selected and n != "speed"]
@@ -172,35 +259,31 @@ class TrainingMixin:
         training_scores = {}
         for stat in scan_order:
             pos = icon_positions[stat]
-            self.logger.info(f"  Clicking {stat} at {pos}")
             self.click_with_offset(*pos)
-            self.wait(0.7)
+            time.sleep(0.35)
             screenshot = self.vision.take_screenshot()
-
             slot_info = self.decision.score_single_training(
                 stat, screenshot, is_pre_summer,
                 current_stats=cached_stats, is_senior=is_senior,
             )
             training_scores[stat] = slot_info
+            self.logger.info(
+                f"  {stat.title()}: {slot_info['score']:.0f} pts "
+                f"(rainbow={slot_info['rainbow']}, blue={slot_info['blue']}, "
+                f"white={slot_info['white']}, friends={slot_info['friendship']})"
+            )
 
         best_slot = max(training_scores, key=lambda s: training_scores[s]["score"]) if training_scores else None
         best_score = training_scores[best_slot]["score"] if best_slot else 0
-        slot_summary = ", ".join(f"{s}={training_scores[s]['score']}pts" for s in training_scores)
-        self.logger.info(f"Training scores — {slot_summary} | Best: {best_slot} ({best_score}pts)")
 
         if not is_junior and mood.lower() != "great":
             fallback = "rest_summer" if is_summer else "recreation"
-            self.logger.info(
-                f"Mood '{mood}' not Great in Classic/Senior — aborting to {fallback.upper()}"
-            )
+            self.logger.info(f"Mood is '{mood}' (not Great) — switching to {fallback}.")
             self.navigate_to_main_screen(screenshot)
             return fallback
 
         if is_summer and best_score < 10 and energy < 80:
-            self.logger.info(
-                f"Summer: weak training ({best_score}pts) energy {energy:.0f}% "
-                f"-> aborting to REST"
-            )
+            self.logger.info(f"Summer break: training not worth it ({best_score:.0f} pts) — resting.")
             self.navigate_to_main_screen(screenshot)
             return "rest_summer"
 
@@ -214,48 +297,45 @@ class TrainingMixin:
         currently_selected = scan_order[-1]
         self._last_selected_training = target
         target_pos = icon_positions.get(target, fallback_positions.get(target, fallback_positions["speed"]))
-        info = training_scores.get(target, {})
-        self.logger.info(
-            f"Selecting training '{target}' at {target_pos} "
-            f"(score={info.get('score', 0)}pts R={info.get('rainbow', 0)} "
-            f"B={info.get('blue', 0)} W={info.get('white', 0)} F={info.get('friendship', 0)})"
-        )
+        self.logger.info(f"Selected training: {target.title()} ({best_score:.0f} pts)")
 
         if target != currently_selected:
-            self.logger.info(f"Switching from {currently_selected} to {target}")
             self.click_with_offset(*target_pos)
-            if self._interruptible_sleep(1.0):
-                return None
+            time.sleep(0.35)
             screenshot = self.vision.take_screenshot()
             new_pos = self.vision.find_template(f"training_{target}", screenshot, 0.55)
             if new_pos:
                 target_pos = new_pos
-                self.logger.info(f"Verified {target} at {new_pos}")
 
-        self.logger.info(f"Confirming training '{target}' at {target_pos}")
+        self.logger.info(f"Confirming {target.title()} training...")
         self.click_with_offset(*target_pos)
         if self._is_steam():
             time.sleep(random.uniform(0.05, 0.10))
             self.click_with_offset(*target_pos)
-        for attempt in range(8):
-            if self._interruptible_sleep(0.5):
-                return None
+
+        deadline_confirm = time.time() + 6.0
+        reclicked = False
+        while time.time() < deadline_confirm:
             if self._check_stopped():
                 return None
             ss = self.vision.take_screenshot()
-            still_training = sum(
-                1 for tpl in self.vision.TRAINING_TEMPLATES[:3]
-                if self.vision.find_template(tpl, ss, 0.60)
-            ) >= 2
-            if not still_training:
+            if not _fast_is_training(self.vision, ss):
                 break
-            if attempt == 2:
-                self.logger.info(f"Re-clicking training '{target}' (click may have been missed)")
+            if not reclicked and (deadline_confirm - time.time()) < 4.5:
+                self.logger.info("Training confirm seems missed — clicking again.")
                 self.click_with_offset(*target_pos)
+                reclicked = True
+            time.sleep(_POLL)
+        else:
+            self.logger.warning("Training confirmation timed out (6s).")
+
         if self._handle_scheduled_race_popup():
-            self.logger.info("Scheduled race preserved — navigating to main for race")
+            self.logger.info("Scheduled race detected — navigating to race.")
             self.navigate_to_main_screen(self.vision.take_screenshot())
             return "scheduled_race"
+
+        self._poll_until_training_resolved(timeout=8.0)
+
         return None
 
     def _handle_scheduled_race_popup(self) -> bool:
@@ -263,51 +343,46 @@ class TrainingMixin:
         cancel_pos = self.vision.find_template("btn_cancel", screenshot, threshold=0.75)
         ok_pos = self.vision.find_template("btn_ok", screenshot, threshold=0.75)
         if cancel_pos and ok_pos:
-            self.logger.info("Scheduled race conflict popup — clicking Cancel to preserve race")
+            self.logger.info("Race conflict popup — cancelling to keep the scheduled race.")
             self.click_with_offset(*cancel_pos)
             self.wait(0.8)
             return True
         return False
 
     def execute_rest_action(self):
-        self.logger.info("Executing REST action...")
+        self.logger.info("Resting...")
         screenshot = self.vision.take_screenshot()
         rest_btn = "btn_rest"
         if self.vision.find_template("btn_rest_summer", screenshot, threshold=0.75):
             rest_btn = "btn_rest_summer"
-            self.logger.info("Summer period — using Rest & Recreation button")
+            self.logger.info("Summer break — using the summer rest option.")
         if not self.click_button(rest_btn, screenshot):
             if rest_btn == "btn_rest_summer" and self.click_button("btn_rest", screenshot):
                 pass
             else:
-                self.logger.warning("Rest button not found — re-detecting screen")
-                screen = self.vision.detect_screen(screenshot)
-                if screen == GameScreen.EVENT:
-                    self.logger.info("Actually an event screen — handling event")
+                self.logger.warning("Rest button not found.")
+                if self.vision.detect_screen(screenshot) == GameScreen.EVENT:
                     self.handle_event(self._event_db)
                     return
-                self.logger.error("Cannot find Rest button")
+                self.logger.error("Could not perform rest action.")
                 return
-        self.wait(2.0)
-        if self._handle_scheduled_race_popup():
-            return
-        self._handle_claw_machine()
+        self._poll_until_main(timeout=3.0)
 
     def _handle_claw_machine(self):
         screenshot = self.vision.take_screenshot()
         if not self.vision.find_template("btn_claw_machine", screenshot, threshold=0.7):
             if self.vision.find_template("claw_prizes", screenshot, 0.80):
-                self.logger.info("Claw Machine results page detected — clicking OK")
+                self.logger.info("Claw machine results — dismissing.")
                 self.click_button("btn_ok", screenshot, threshold=0.65)
                 self.wait(2.0)
             return
-        self.logger.info("Claw Machine mini-game detected!")
+        self.logger.info("Claw machine mini-game starting!")
         if self._interruptible_sleep(5.0):
             return
         for round_num in range(1, 4):
             if self._check_stopped():
                 return
-            self.logger.info(f"Claw Machine round {round_num}/3")
+            self.logger.info(f"Claw machine — round {round_num}/3")
             pos = None
             for attempt in range(8):
                 screenshot = self.vision.take_screenshot()
@@ -317,20 +392,20 @@ class TrainingMixin:
                 if self._interruptible_sleep(1.0):
                     return
             if not pos:
-                self.logger.warning(f"Claw machine button not found for round {round_num}")
+                self.logger.warning(f"Claw machine button not found for round {round_num}.")
                 continue
             self._claw_hold_button(pos)
-            self.logger.info(f"Claw Machine round {round_num} — held 2 seconds")
+            self.logger.info(f"Claw machine round {round_num} complete.")
             if self._interruptible_sleep(5.0):
                 return
-        self.logger.info("Claw Machine done — waiting for OK button")
+        self.logger.info("Claw machine done — waiting for result screen.")
         for _ in range(15):
             if self._check_stopped():
                 return
             if self.click_button("btn_ok", threshold=0.65):
                 return
             time.sleep(1.0)
-        self.logger.warning("Timed out waiting for claw machine OK button")
+        self.logger.warning("Claw machine result screen timed out.")
 
     def _claw_hold_button(self, pos):
         hwnd = self.vision.game_hwnd
@@ -371,129 +446,119 @@ class TrainingMixin:
             win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
 
     def execute_infirmary_action(self):
-        self.logger.info("Executing INFIRMARY action...")
+        self.logger.info("Visiting the infirmary...")
         screenshot = self.vision.take_screenshot()
         if not self.vision.detect_injury(screenshot):
-            self.logger.warning("Infirmary action requested but no injury detected — skipping")
+            self.logger.warning("No injury detected — skipping infirmary.")
             return
         if not self.click_button("btn_infirmary", screenshot):
-            self.logger.warning("Infirmary button not found — re-detecting screen")
-            screen = self.vision.detect_screen(screenshot)
-            if screen == GameScreen.EVENT:
-                self.logger.info("Actually an event screen — handling event")
+            if self.vision.detect_screen(screenshot) == GameScreen.EVENT:
                 self.handle_event(self._event_db)
                 return
-            self.logger.error("Cannot find Infirmary button")
+            self.logger.error("Could not find the infirmary button.")
             return
-        self.wait(0.5)
+        time.sleep(_POLL)
 
     def _handle_pal_recreation_popup(self) -> bool:
         screenshot = self.vision.take_screenshot()
-
         if not self.vision.find_template("recreation_popup", screenshot, 0.70):
             return False
-
-        self.logger.info("PAL recreation popup detected — analysing rows...")
-
+        self.logger.info("PAL recreation popup detected.")
         popup_pos = self.vision.find_template("recreation_popup", screenshot, 0.70)
-        click_x = popup_pos[0] if popup_pos else None
-
-        empty_arrows = self.vision.find_all_template("arrow_empty", screenshot, 0.65, min_distance=15)
-        filled_arrows = self.vision.find_all_template("arrow_filled", screenshot, 0.80, min_distance=15)
-
-        EXCLUSION_DIST = 20
-        empty_arrows = [
-            ep for ep in empty_arrows
-            if not any(abs(ep[0] - fp[0]) <= EXCLUSION_DIST and abs(ep[1] - fp[1]) <= EXCLUSION_DIST
-                       for fp in filled_arrows)
-        ]
-
+        if not popup_pos:
+            return False
+        empty_arrows = self.vision.find_all_template("arrow_empty", screenshot, 0.70, min_distance=15)
         if empty_arrows:
-            sorted_arrows = sorted(empty_arrows, key=lambda p: p[1])
-            rows, cur = [], [sorted_arrows[0]]
-            for pt in sorted_arrows[1:]:
+            sorted_e = sorted(empty_arrows, key=lambda p: p[1])
+            rows, cur = [], [sorted_e[0]]
+            for pt in sorted_e[1:]:
                 if abs(pt[1] - cur[-1][1]) <= 50:
                     cur.append(pt)
                 else:
                     rows.append(cur)
                     cur = [pt]
             rows.append(cur)
-
-            if click_x is None:
-                click_x = int(sum(p[0] for p in rows[0]) / len(rows[0]))
-            click_y = int(sum(p[1] for p in rows[0]) / len(rows[0]))
-            self.logger.info(f"  {len(rows)} PAL row(s) — clicking topmost at ({click_x}, {click_y})")
-            self.click_with_offset(click_x, click_y)
-            self.wait(0.8)
-            return True
-
-        trainee_pos = self.vision.find_template("trainee_uma", screenshot, 0.70)
-        if trainee_pos:
-            self.logger.info(f"All PAL recreations complete — falling back to trainee row at {trainee_pos}")
-            self.click_with_offset(*trainee_pos)
-            self.wait(0.8)
-            return True
-
-        self.logger.warning("PAL popup detected but no arrows or trainee label — cancelling")
-        cancel_pos = self.vision.find_template("btn_cancel", screenshot, 0.70)
-        if cancel_pos:
-            self.click_with_offset(*cancel_pos)
-            self.wait(0.5)
-        return False
+            avg_y = int(sum(p[1] for p in rows[0]) / len(rows[0]))
+            self.click_with_offset(popup_pos[0], avg_y)
+        else:
+            trainee_pos = self.vision.find_template("trainee_uma", screenshot, 0.70)
+            if trainee_pos:
+                self.click_with_offset(*trainee_pos)
+            else:
+                cancel_pos = self.vision.find_template("btn_cancel", screenshot, 0.75)
+                if cancel_pos:
+                    self.click_with_offset(*cancel_pos)
+                return False
+        time.sleep(_POLL)
+        return True
 
     def execute_recreation_action(self):
-        self.logger.info("Executing RECREATION action...")
+        self.logger.info("Taking a recreation break...")
         screenshot = self.vision.take_screenshot()
-        if not self.click_button("btn_recreation", screenshot):
-            self.logger.warning("btn_recreation not found — re-detecting screen")
-            screen = self.vision.detect_screen(screenshot)
-            if screen == GameScreen.EVENT:
-                self.logger.info("Actually an event screen — handling event")
+
+        if self.vision.find_template("recreation_popup", screenshot, 0.70):
+            self._handle_pal_recreation_popup()
+        elif not self.click_button("btn_recreation", screenshot):
+            self.logger.warning("Recreation button not found.")
+            if self.vision.detect_screen(screenshot) == GameScreen.EVENT:
                 self.handle_event(self._event_db)
                 return
-            self.logger.error("Cannot find Recreation button")
-            return
-        self.wait(0.8)
-
-        if self._handle_scheduled_race_popup():
+            self.logger.error("Could not perform recreation action.")
             return
 
-        if self._handle_pal_recreation_popup():
-            self.logger.info("PAL special recreation selected")
-        else:
-            self.logger.info("No PAL popup — standard recreation")
-        self.wait(2.0)
-        self._handle_claw_machine()
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if self._check_stopped():
+                return
+            ss = self.vision.take_screenshot()
+            if self.vision.find_template("btn_claw_machine", ss, 0.70):
+                self.logger.info("Claw machine appeared after recreation.")
+                self._handle_claw_machine()
+                break
+            if _fast_is_main(self.vision, ss):
+                return
+            time.sleep(_POLL)
+
+        self._poll_until_main(timeout=3.0)
 
     def execute_rainbow_training(self):
-        self.logger.info("Executing RAINBOW TRAINING action...")
+        self.logger.info("Executing rainbow training...")
         screenshot = self.vision.take_screenshot()
-        screen = self.vision.detect_screen(screenshot)
-        if screen == GameScreen.MAIN:
-            if not self.click_button("btn_training", screenshot):
-                self.logger.error("Cannot find Training button")
+        if not _fast_is_training(self.vision, screenshot):
+            if _fast_is_main(self.vision, screenshot):
+                if not self.click_button("btn_training", screenshot):
+                    self.logger.error("Could not open training screen for rainbow.")
+                    return
+                self._wait_for_training_screen(timeout=3.0)
+        screenshot = self.vision.take_screenshot()
+        gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
+        xf = self.vision._aspect_x_factor(gw, gh)
+        cal = self.vision._calibration
+        rainbow_positions = self.vision.count_rainbows_for_all(screenshot)
+        if not rainbow_positions:
+            self.logger.warning("No rainbow training found — falling back to normal training.")
+            self.navigate_to_main_screen(screenshot)
+            return
+        best_stat = max(rainbow_positions, key=lambda s: rainbow_positions[s])
+        defaults = {
+            "speed": (0.145, 0.843), "stamina": (0.322, 0.843),
+            "power": (0.500, 0.843), "guts": (0.678, 0.843),
+            "wit": (0.855, 0.843),
+        }
+        tp = cal.get(f"train_{best_stat}", {})
+        px = gx + int(gw * tp.get("x", defaults[best_stat][0]) * xf)
+        py = gy + int(gh * tp.get("y", defaults[best_stat][1]))
+        self.logger.info(f"Rainbow training — selecting {best_stat.title()}.")
+        self.click_with_offset(px, py)
+        time.sleep(0.35)
+        self.click_with_offset(px, py)
+        if self._is_steam():
+            time.sleep(random.uniform(0.05, 0.10))
+            self.click_with_offset(px, py)
+        deadline = time.time() + 6.0
+        while time.time() < deadline:
+            if self._check_stopped():
                 return
-            self.wait(0.5)
-            screenshot = self.vision.take_screenshot()
-
-        rainbow_pos = self.vision.find_template("rainbow_training", screenshot, threshold=0.7)
-        if rainbow_pos:
-            self.click_with_offset(*rainbow_pos)
-            self.wait(0.5)
-            self.click_with_offset(*rainbow_pos)
-            self.wait(0.5)
-        else:
-            self.logger.warning("Rainbow not found — fallback to burst")
-            bursts = self.vision.detect_burst_training(screenshot)
-            if bursts["blue"]:
-                self.click_with_offset(*bursts["blue"][0])
-                self.wait(0.5)
-                self.click_with_offset(*bursts["blue"][0])
-                self.wait(0.5)
-            elif bursts["white"]:
-                self.click_with_offset(*bursts["white"][0])
-                self.wait(0.5)
-                self.click_with_offset(*bursts["white"][0])
-                self.wait(0.5)
-            else:
-                self.logger.warning("No burst found either")
+            if not _fast_is_training(self.vision, self.vision.take_screenshot()):
+                break
+            time.sleep(_POLL)

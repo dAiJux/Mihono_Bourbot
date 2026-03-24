@@ -4,6 +4,14 @@ All notable changes are documented here.
 
 ---
 
+## [1.0.3] — 2026-03-24
+
+### Fixed
+- **Click system**: Add click test and improved click management.
+- **Automation optimization** Improved the speed of the bot for autmation.
+
+---
+
 ## [1.0.2] — 2026-03-12
 
 ### Fixed

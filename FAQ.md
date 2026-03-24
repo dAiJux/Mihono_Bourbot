@@ -11,7 +11,7 @@ An automation bot for **Umamusume Pretty Derby** training scenarios. It captures
 **Windows only.** The bot relies on `pywin32` (`PostMessage`, `PrintWindow`) which are Windows-specific APIs.
 
 The game can run on:
-- **Google Play** via an Android emulator (BlueStacks, MuMu, etc.) — background clicks via `PostMessage`
+- **Google Play** — background clicks via `PostMessage`
 - **LDPlayer** — background clicks via `PostMessage` to the render child window
 - **Steam** — foreground clicks via `SendMessage` + `SetCursorPos` (monopolizes the mouse)
 
@@ -125,7 +125,7 @@ Energy threshold is too high. Lower `thresholds.energy_training` in `config/conf
 
 - Make sure the correct **platform** is selected (`google_play`, `ldplayer`, or `steam`)
 - LDPlayer requires clicking on the render child window — the bot handles this automatically when platform is set to `ldplayer`
-- Some emulators block `PostMessage`. Recommended: BlueStacks 5, LDPlayer, MuMu, DMM Player
+- Some emulators block `PostMessage`. Recommended: Google Play Games, LDPlayer
 
 ### Screen detected as UNKNOWN
 

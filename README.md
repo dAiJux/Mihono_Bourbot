@@ -196,7 +196,7 @@ Configure the wishlist in `config/config.json` under `skill_wishlist`.
 | Game window not found | Use the **Window** tab in the GUI to select the game window manually |
 | Template matching fails | Re-capture templates at current resolution. Use `visual_debug.py` to diagnose |
 | OCR reads wrong values | Verify EasyOCR is installed: `pip install easyocr`. Templates auto-scale to any resolution |
-| Clicks don't register | Try a different emulator (BlueStacks / LDPlayer / MuMu) |
+| Clicks don't register | Try a different emulator (Google Play / LDPlayer / Steam) |
 | Screen detected as UNKNOWN | Run `visual_debug.py`, press **D** on the relevant screen |
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) and [FAQ.md](FAQ.md) for more.

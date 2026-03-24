@@ -38632,6 +38632,16 @@
                 }
             }
         },
+        "A Hint for Growth": {
+            "choices": {
+                "0": {
+                    "description": "auto",
+                    "effects": {},
+                    "skills": [],
+                    "conditions": []
+                }
+            }
+        },
         "Tutorial": {
             "choices": {
                 "1": {

@@ -8,7 +8,9 @@ class UnityMixin:
 
         self.unity_round += 1
         is_final = self.unity_round >= 5
-        self.logger.info(f"Executing UNITY CUP — Round {self.unity_round}{' (FINAL)' if is_final else ''}")
+        self.logger.info(
+            f"Unity Cup — round {self.unity_round}{' (FINAL)' if is_final else ''}."
+        )
 
         if self.unity_round == 1:
             self._unity_close_popup()
@@ -37,12 +39,12 @@ class UnityMixin:
                     for ew in ["event_scenario_window", "event_trainee_window", "event_support_window"]
                 )
                 if not has_event_win:
-                    self.logger.info("Round 1 team edit popup — closing")
+                    self.logger.info("Closing Unity Cup intro popup.")
                     self.click_button("btn_close", screenshot)
                     self.wait(1.0)
                     continue
             time.sleep(0.5)
-        self.logger.warning("Timed out closing Round 1 popup")
+        self.logger.warning("Timed out closing Unity Cup popup.")
 
     def _unity_click_launch(self):
         for _ in range(10):
@@ -50,11 +52,12 @@ class UnityMixin:
                 return
             screenshot = self.vision.take_screenshot()
             if self.vision.find_template("btn_unity_launch", screenshot, 0.70):
+                self.logger.info("Launching Unity Cup showdown.")
                 self.click_button("btn_unity_launch", screenshot)
                 self.wait(2.0)
                 return
             time.sleep(0.5)
-        self.logger.warning("btn_unity_launch not found")
+        self.logger.warning("Unity Cup launch button not found.")
 
     def _unity_normal_round(self):
         opponents = []
@@ -63,7 +66,7 @@ class UnityMixin:
                 return
             screenshot = self.vision.take_screenshot()
             if self.vision.find_template("btn_unity_launch", screenshot, 0.70):
-                self.logger.info("btn_unity_launch still visible — re-clicking")
+                self.logger.info("Launch button still visible — re-clicking.")
                 self.click_button("btn_unity_launch", screenshot)
                 self.wait(2.0)
                 continue
@@ -76,13 +79,13 @@ class UnityMixin:
         if opponents:
             if self.unity_round == 1 and len(opponents) >= 2:
                 target = opponents[1]
-                self.logger.info(f"Round 1 — selecting 2nd opponent at {target}")
+                self.logger.info("Round 1 — selecting second opponent.")
             else:
                 target = opponents[0]
-                self.logger.info(f"Round {self.unity_round} — selecting 1st opponent at {target}")
+                self.logger.info(f"Round {self.unity_round} — selecting first opponent.")
             self.click_with_offset(*target)
         else:
-            self.logger.warning("No opponents found — clicking center of opponent zone")
+            self.logger.warning("No opponents detected — clicking center of opponent area.")
             screenshot = self.vision.take_screenshot()
             gx, gy, gw, gh = self.vision.get_game_rect(screenshot)
             xf = self.vision._aspect_x_factor(gw, gh)
@@ -94,26 +97,26 @@ class UnityMixin:
 
         self.wait_and_click("btn_select_opponent", timeout=8)
         self.wait(2.0)
-
         self.wait_and_click("btn_begin_showdown", timeout=8)
         self.wait(2.0)
 
     def _unity_final_round(self):
+        self.logger.info("Starting Unity Cup final.")
         self.wait_and_click("btn_launch_final_unity", timeout=8)
         self.wait(2.0)
-
         self.wait_and_click("btn_begin_showdown", timeout=8)
         self.wait(2.0)
 
     def _unity_showdown_results(self):
+        self.logger.info("Waiting for Unity Cup results...")
         time.sleep(3.0)
         self.wait_and_click("btn_see_unity_results", timeout=45)
         self.wait(1.5)
 
-        self._wait_and_click_result("btn_skip", "Skip animations")
-        self._wait_and_click_result("btn_next", "btn_next after skip")
-        self._wait_and_click_result("btn_next_unity", "btn_next_unity")
-        self._wait_and_click_result("btn_next", "Final btn_next")
+        self._wait_and_click_result("btn_skip", "skip animations")
+        self._wait_and_click_result("btn_next", "next after skip")
+        self._wait_and_click_result("btn_next_unity", "next unity")
+        self._wait_and_click_result("btn_next", "final next")
 
     def _wait_and_click_result(self, btn_name, step_label):
         for _ in range(15):
@@ -124,9 +127,8 @@ class UnityMixin:
             if pos:
                 gx, _, gw, _ = self.vision.get_game_rect(screenshot)
                 if gx <= pos[0] <= gx + gw:
-                    self.logger.info(f"Unity {step_label}: {btn_name} clicked")
                     self.click_button(btn_name, screenshot, threshold=0.70)
                     self.wait(1.5)
                     return
             time.sleep(0.5)
-        self.logger.warning(f"Unity {step_label}: Timed out waiting for {btn_name}")
+        self.logger.warning(f"Timed out waiting for Unity result step: {step_label}.")
