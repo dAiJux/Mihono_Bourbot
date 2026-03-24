@@ -29,6 +29,15 @@ class ClickMixin:
     def _is_ldplayer(self) -> bool:
         return self.config.get("platform", "google_play") == "ldplayer"
 
+    def _is_google_play(self) -> bool:
+        return self.config.get("platform", "google_play") == "google_play"
+
+    def _ensure_google_play_click_state(self):
+        if not hasattr(self, "_gp_click_mode"):
+            self._gp_click_mode = "parent_post"
+        if not hasattr(self, "_gp_mode_finalized"):
+            self._gp_mode_finalized = False
+
     def _find_render_child(self, parent_hwnd):
         best = None
         best_area = 0
@@ -115,11 +124,82 @@ class ClickMixin:
         self.logger.debug(f"Click at client({client_x}, {client_y}) window({x}, {y})")
 
     def _google_play_click(self, hwnd, client_x, client_y):
-        lp = self._make_lparam(client_x, client_y)
-        win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lp)
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+        self._ensure_google_play_click_state()
+        self._google_play_click_with_mode(hwnd, client_x, client_y, self._gp_click_mode)
+
+    def _google_play_click_with_mode(self, parent_hwnd, client_x, client_y, mode: str) -> bool:
+        target = parent_hwnd
+        tx, ty = int(client_x), int(client_y)
+
+        if mode in ("child_post", "child_send"):
+            child = self._find_render_child(parent_hwnd)
+            if child is None:
+                return False
+            try:
+                p_origin = win32gui.ClientToScreen(parent_hwnd, (0, 0))
+                c_origin = win32gui.ClientToScreen(child, (0, 0))
+                tx = int(client_x - (c_origin[0] - p_origin[0]))
+                ty = int(client_y - (c_origin[1] - p_origin[1]))
+                target = child
+            except Exception:
+                return False
+
+        lp = self._make_lparam(tx, ty)
+        if mode in ("parent_send", "child_send"):
+            win32gui.SendMessage(target, win32con.WM_MOUSEMOVE, 0, lp)
+            win32gui.SendMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+            time.sleep(random.uniform(0.05, 0.15))
+            win32gui.SendMessage(target, win32con.WM_LBUTTONUP, 0, lp)
+            return True
+
+        win32gui.PostMessage(target, win32con.WM_MOUSEMOVE, 0, lp)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
         time.sleep(random.uniform(0.05, 0.15))
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONUP, 0, lp)
+        return True
+
+    _GP_DISCOVERY_BUTTONS = {
+        "btn_training", "btn_rest", "btn_rest_summer", "btn_recreation", "btn_races",
+        "btn_skills", "btn_back", "btn_next", "btn_tap", "btn_skip", "btn_ok",
+        "btn_confirm", "btn_cancel", "btn_race_start", "btn_race_confirm",
+        "learn_btn", "confirm_btn",
+    }
+
+    def _discover_google_play_click_mode(self, button_name: str, x: int, y: int, threshold: float) -> bool:
+        self._ensure_google_play_click_state()
+        hwnd = self.vision.game_hwnd
+        if hwnd is None or not win32gui.IsWindow(hwnd):
+            self.vision.find_game_window()
+            hwnd = self.vision.game_hwnd
+        if hwnd is None:
+            self._gp_mode_finalized = True
+            return False
+
+        verify_threshold = max(0.60, threshold - 0.03)
+        candidates = ["parent_post", "parent_send", "child_post", "child_send"]
+        if self._gp_click_mode in candidates:
+            candidates.remove(self._gp_click_mode)
+        candidates.insert(0, self._gp_click_mode)
+
+        for mode in candidates:
+            if self._check_stopped():
+                self._gp_mode_finalized = True
+                return False
+            cx = int(x) - self.vision._client_offset_x + random.randint(-4, 4)
+            cy = int(y) - self.vision._client_offset_y + random.randint(-4, 4)
+            attempted = self._google_play_click_with_mode(hwnd, cx, cy, mode)
+            if not attempted:
+                continue
+            if self.poll_until_gone(button_name, timeout=0.9, interval=0.08, threshold=verify_threshold):
+                self._gp_click_mode = mode
+                self._gp_mode_finalized = True
+                self.logger.info("Google Play click mode locked for this run: %s", mode)
+                return True
+
+        # Discovery is performed only once per run.
+        self._gp_mode_finalized = True
+        self.logger.info("Google Play click mode discovery failed, keeping mode: %s", self._gp_click_mode)
+        return False
 
     def _steam_click(self, hwnd, client_x, client_y):
         lp = self._make_lparam(client_x, client_y)
@@ -163,6 +243,7 @@ class ClickMixin:
         win32gui.PostMessage(child, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
         time.sleep(random.uniform(0.05, 0.15))
         win32gui.PostMessage(child, win32con.WM_LBUTTONUP, 0, lp)
+
 
     def click_with_offset(self, x: int, y: int):
         lo, hi = self.click_offset_range
@@ -221,6 +302,16 @@ class ClickMixin:
                 else:
                     time.sleep(random.uniform(0.05, 0.10))
                 self.click_with_offset(x, y)
+            elif self._is_google_play() and button_name in self._GP_DISCOVERY_BUTTONS:
+                self._ensure_google_play_click_state()
+                if not self._gp_mode_finalized:
+                    verify_threshold = max(0.60, threshold - 0.03)
+                    changed = self.poll_until_gone(button_name, timeout=0.9, interval=0.08, threshold=verify_threshold)
+                    if changed:
+                        self._gp_mode_finalized = True
+                        self.logger.info("Google Play click mode locked for this run: %s", self._gp_click_mode)
+                    else:
+                        self._discover_google_play_click_mode(button_name, x, y, threshold)
             self.logger.info(f"Button '{button_name}' clicked at {(x, y)}")
             return True
         self.logger.warning(f"Button '{button_name}' not found")
@@ -280,35 +371,57 @@ def click_test_dispatch(method_id, hwnd, client_x, client_y):
     cx, cy = int(client_x), int(client_y)
     lp = win32api.MAKELONG(cx, cy)
 
-    if method_id == "gp_1_post_no_hover":
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+    if method_id in ("gp_1_child_no_hover", "gp_1_post_no_hover"):
+        child = _find_best_child(hwnd)
+        target = child if child else hwnd
+        tx, ty = _child_coords(hwnd, child, cx, cy) if child else (cx, cy)
+        lp2 = win32api.MAKELONG(int(tx), int(ty))
+        win32gui.PostMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp2)
         time.sleep(random.uniform(0.05, 0.15))
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONUP, 0, lp2)
 
-    elif method_id == "gp_2_post_hover":
+    elif method_id in ("gp_2_child_post_hover", "gp_2_post_hover"):
+        child = _find_best_child(hwnd)
+        target = child if child else hwnd
+        tx, ty = _child_coords(hwnd, child, cx, cy) if child else (cx, cy)
+        lp2 = win32api.MAKELONG(int(tx), int(ty))
+        win32gui.PostMessage(target, win32con.WM_MOUSEMOVE, 0, lp2)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp2)
+        time.sleep(random.uniform(0.05, 0.15))
+        win32gui.PostMessage(target, win32con.WM_LBUTTONUP, 0, lp2)
+
+    elif method_id in ("gp_3_child_send_hover", "gp_3_send_hover"):
+        child = _find_best_child(hwnd)
+        target = child if child else hwnd
+        tx, ty = _child_coords(hwnd, child, cx, cy) if child else (cx, cy)
+        lp2 = win32api.MAKELONG(int(tx), int(ty))
+        win32gui.SendMessage(target, win32con.WM_MOUSEMOVE, 0, lp2)
+        win32gui.SendMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp2)
+        time.sleep(random.uniform(0.05, 0.15))
+        win32gui.SendMessage(target, win32con.WM_LBUTTONUP, 0, lp2)
+
+    elif method_id in ("gp_4_parent_post_hover", "gp_4_mixed_hover"):
         win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lp)
         win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
         time.sleep(random.uniform(0.05, 0.15))
         win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
 
-    elif method_id == "gp_3_send_hover":
+    elif method_id == "gp_5_parent_send_hover":
         win32gui.SendMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lp)
         win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
         time.sleep(random.uniform(0.05, 0.15))
         win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
 
-    elif method_id == "gp_4_mixed_hover":
-        win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lp)
-        win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
-        time.sleep(random.uniform(0.05, 0.15))
-        win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
-
-    elif method_id == "gp_5_triple_hover":
+    elif method_id in ("gp_6_child_triple_hover", "gp_5_triple_hover"):
+        child = _find_best_child(hwnd)
+        target = child if child else hwnd
+        tx, ty = _child_coords(hwnd, child, cx, cy) if child else (cx, cy)
+        lp2 = win32api.MAKELONG(int(tx), int(ty))
         for _ in range(3):
-            win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lp)
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
+            win32gui.PostMessage(target, win32con.WM_MOUSEMOVE, 0, lp2)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp2)
         time.sleep(random.uniform(0.05, 0.15))
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lp)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONUP, 0, lp2)
 
     elif method_id == "gp_6_fg_hover":
         try:
@@ -438,8 +551,41 @@ def click_test_dispatch(method_id, hwnd, client_x, client_y):
 def scroll_test_dispatch(method_id, hwnd, client_x, from_y, to_y, steps=25):
     cx, fy, ty = int(client_x), int(from_y), int(to_y)
 
-    if method_id in ("gp_1_post_no_hover", "gp_2_post_hover",
-                     "gp_5_triple_hover", "gp_6_fg_hover"):
+    if method_id in ("gp_1_child_no_hover", "gp_2_child_post_hover",
+                     "gp_6_child_triple_hover", "gp_1_post_no_hover",
+                     "gp_2_post_hover", "gp_5_triple_hover"):
+        child = _find_best_child(hwnd)
+        target = child if child else hwnd
+        scx, sfy = _child_coords(hwnd, child, cx, fy) if child else (cx, fy)
+        _, sty = _child_coords(hwnd, child, cx, ty) if child else (cx, ty)
+        scx, sfy, sty = int(scx), int(sfy), int(sty)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON,
+                             win32api.MAKELONG(scx, sfy))
+        time.sleep(0.06)
+        for i in range(1, steps + 1):
+            iy = sfy + int((sty - sfy) * i / steps)
+            win32gui.PostMessage(target, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON,
+                                 win32api.MAKELONG(scx, iy))
+            time.sleep(0.04)
+        win32gui.PostMessage(target, win32con.WM_LBUTTONUP, 0, win32api.MAKELONG(scx, sty))
+
+    elif method_id in ("gp_3_child_send_hover", "gp_3_send_hover"):
+        child = _find_best_child(hwnd)
+        target = child if child else hwnd
+        scx, sfy = _child_coords(hwnd, child, cx, fy) if child else (cx, fy)
+        _, sty = _child_coords(hwnd, child, cx, ty) if child else (cx, ty)
+        scx, sfy, sty = int(scx), int(sfy), int(sty)
+        win32gui.SendMessage(target, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON,
+                             win32api.MAKELONG(scx, sfy))
+        time.sleep(0.06)
+        for i in range(1, steps + 1):
+            iy = sfy + int((sty - sfy) * i / steps)
+            win32gui.SendMessage(target, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON,
+                                 win32api.MAKELONG(scx, iy))
+            time.sleep(0.04)
+        win32gui.SendMessage(target, win32con.WM_LBUTTONUP, 0, win32api.MAKELONG(scx, sty))
+
+    elif method_id in ("gp_4_parent_post_hover", "gp_4_mixed_hover", "gp_6_fg_hover"):
         if method_id == "gp_6_fg_hover":
             try:
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
@@ -455,7 +601,7 @@ def scroll_test_dispatch(method_id, hwnd, client_x, from_y, to_y, steps=25):
             time.sleep(0.04)
         win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, win32api.MAKELONG(cx, ty))
 
-    elif method_id in ("gp_3_send_hover", "gp_4_mixed_hover"):
+    elif method_id == "gp_5_parent_send_hover":
         win32gui.SendMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON,
                              win32api.MAKELONG(cx, fy))
         time.sleep(0.06)

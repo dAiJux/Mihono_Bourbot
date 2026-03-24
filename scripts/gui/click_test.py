@@ -32,29 +32,29 @@ class ClickTestDialog(tk.Toplevel):
 
     _METHODS_BY_PLATFORM = {
         "google_play": [
-            ("gp_1_post_no_hover",
+              ("gp_1_child_no_hover",
              "Standard click",
-             "The classic way — the bot clicks directly on the button.",
+               "The classic way — clicks directly in the game render area.",
              False),
-            ("gp_2_post_hover",
+              ("gp_2_child_post_hover",
              "Click with cursor hover",
-             "The bot moves the cursor to the button first, then clicks.",
+               "Moves to the button first, then clicks in the game render area.",
              False),
-            ("gp_3_send_hover",
+              ("gp_3_child_send_hover",
              "Precise click",
-             "A more deliberate click — the bot waits for each action to complete.",
+               "A deliberate click in the game render area — waits for each action to complete.",
              False),
-            ("gp_4_mixed_hover",
-             "Combined click",
-             "Mixes the hover and precise techniques together.",
+              ("gp_4_parent_post_hover",
+               "Window-level hover click",
+               "Clicks at the Google Play window level instead of the game render area.",
              False),
-            ("gp_5_triple_hover",
-             "Insistent hover click",
-             "The bot moves to the button three times before clicking.",
+              ("gp_5_parent_send_hover",
+               "Window-level precise click",
+               "Precise click at the Google Play window level.",
              False),
-            ("gp_6_fg_hover",
-             "Focus + click",
-             "Brings the emulator window to the front, then clicks.",
+              ("gp_6_child_triple_hover",
+               "Insistent hover click",
+               "Moves to the button three times, then clicks in the game render area.",
              False),
         ],
         "ldplayer": [
@@ -543,6 +543,11 @@ class ClickTestDialog(tk.Toplevel):
             def stopped():
                 return self._stop_flag
 
+            def skip_remaining(from_idx: int):
+                for i in range(from_idx, len(self._STEPS)):
+                    if self._step_states[i] in ("wait", "running"):
+                        self._update_step_ui("skip", i)
+
             self._update_step_ui("running", 0)
             self._set_status("Clicking on Training…")
             ss = vision.take_screenshot()
@@ -556,8 +561,17 @@ class ClickTestDialog(tk.Toplevel):
                 s2 = vision.detect_screen(vision.take_screenshot())
                 ok = (s2 == GameScreen.TRAINING)
                 self._update_step_ui("ok" if ok else "fail", 0)
+                if not ok:
+                    self._set_status("Training did not open — dependent steps skipped.")
+                    skip_remaining(1)
+                    self._finish_run()
+                    return
             else:
                 self._update_step_ui("fail", 0)
+                self._set_status("Training button not found — dependent steps skipped.")
+                skip_remaining(1)
+                self._finish_run()
+                return
 
             if stopped():
                 self._finish_run()
@@ -565,6 +579,12 @@ class ClickTestDialog(tk.Toplevel):
 
             self._update_step_ui("running", 1)
             self._set_status("Clicking on training options…")
+            if vision.detect_screen(vision.take_screenshot()) != GameScreen.TRAINING:
+                self._update_step_ui("fail", 1)
+                self._set_status("Not on Training screen — dependent steps skipped.")
+                skip_remaining(2)
+                self._finish_run()
+                return
             ss = vision.take_screenshot()
             gx, gy, gw, gh = vision.get_game_rect(ss)
             xf  = vision._aspect_x_factor(gw, gh)
@@ -579,7 +599,14 @@ class ClickTestDialog(tk.Toplevel):
                 py = gy + int(gh * tp.get("y", def_y))
                 click(px, py)
                 time.sleep(0.8)
-            self._update_step_ui("ok" if stat_ok else "fail", 1)
+            s_after_stats = vision.detect_screen(vision.take_screenshot())
+            step1_ok = stat_ok and (s_after_stats == GameScreen.TRAINING)
+            self._update_step_ui("ok" if step1_ok else "fail", 1)
+            if not step1_ok:
+                self._set_status("Training interactions failed — dependent steps skipped.")
+                skip_remaining(2)
+                self._finish_run()
+                return
 
             if stopped():
                 self._finish_run()
@@ -599,7 +626,13 @@ class ClickTestDialog(tk.Toplevel):
                 click(gx2 + int(gw2 * 0.06 * xf2), gy2 + int(gh2 * 0.02))
             time.sleep(2.5)
             s2 = vision.detect_screen(vision.take_screenshot())
-            self._update_step_ui("ok" if s2 == GameScreen.MAIN else "fail", 2)
+            step2_ok = (s2 == GameScreen.MAIN)
+            self._update_step_ui("ok" if step2_ok else "fail", 2)
+            if not step2_ok:
+                self._set_status("Could not return to Main screen — dependent steps skipped.")
+                skip_remaining(3)
+                self._finish_run()
+                return
 
             if stopped():
                 self._finish_run()
@@ -607,6 +640,12 @@ class ClickTestDialog(tk.Toplevel):
 
             self._update_step_ui("running", 3)
             self._set_status("Opening the Skills screen…")
+            if vision.detect_screen(vision.take_screenshot()) != GameScreen.MAIN:
+                self._update_step_ui("fail", 3)
+                self._set_status("Not on Main screen — dependent steps skipped.")
+                skip_remaining(4)
+                self._finish_run()
+                return
             ss  = vision.take_screenshot()
             pos = vision.find_template("btn_skills", ss, 0.72)
             if pos:
@@ -616,9 +655,19 @@ class ClickTestDialog(tk.Toplevel):
                 click(sx, sy)
                 time.sleep(2.5)
                 s2 = vision.detect_screen(vision.take_screenshot())
-                self._update_step_ui("ok" if s2 == GameScreen.SKILL_SELECT else "fail", 3)
+                step3_ok = (s2 == GameScreen.SKILL_SELECT)
+                self._update_step_ui("ok" if step3_ok else "fail", 3)
+                if not step3_ok:
+                    self._set_status("Skills screen did not open — dependent steps skipped.")
+                    skip_remaining(4)
+                    self._finish_run()
+                    return
             else:
                 self._update_step_ui("fail", 3)
+                self._set_status("Skills button not found — dependent steps skipped.")
+                skip_remaining(4)
+                self._finish_run()
+                return
 
             if stopped():
                 self._finish_run()
@@ -626,6 +675,12 @@ class ClickTestDialog(tk.Toplevel):
 
             self._update_step_ui("running", 4)
             self._set_status("Scrolling through the skills list…")
+            if vision.detect_screen(vision.take_screenshot()) != GameScreen.SKILL_SELECT:
+                self._update_step_ui("fail", 4)
+                self._set_status("Not on Skills screen — dependent steps skipped.")
+                skip_remaining(5)
+                self._finish_run()
+                return
             scroll_ok = True
             for n in range(5):
                 if stopped():
@@ -638,7 +693,14 @@ class ClickTestDialog(tk.Toplevel):
                 sto = (gy4 + int(gh4 * 0.45)) - oy
                 scroll_test_dispatch(method_id, hwnd, scx, sfy, sto)
                 time.sleep(0.8)
-            self._update_step_ui("ok" if scroll_ok else "fail", 4)
+            s_after_scroll = vision.detect_screen(vision.take_screenshot())
+            step4_ok = scroll_ok and (s_after_scroll == GameScreen.SKILL_SELECT)
+            self._update_step_ui("ok" if step4_ok else "fail", 4)
+            if not step4_ok:
+                self._set_status("Skills scrolling failed — dependent steps skipped.")
+                skip_remaining(5)
+                self._finish_run()
+                return
 
             if stopped():
                 self._finish_run()

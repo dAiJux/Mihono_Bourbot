@@ -23753,6 +23753,1036 @@
                     }
                 }
             }
+        },
+        "Kitasan Black": {
+            "Twinned Ships, Seperate Paths": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "New Friends": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Of the Empress's Blood": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "power": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Dark Clouds in the Spring Sky": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Kitasan and the Witch": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "mood": 1,
+                            "speed": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "My Dependable Upperclassman!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "energy": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Soul-Shaking Voice": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "mood": -1,
+                            "power": -5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Prime Time Cameo": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 5,
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {},
+                        "skills": [
+                            {
+                                "name": "Corner Adept ○",
+                                "level": 1
+                            }
+                        ],
+                        "conditions": []
+                    }
+                }
+            },
+            "Kitasan the Traveling Masseuse!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "energy": 10,
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "3": {
+                        "description": "",
+                        "effects": {},
+                        "skills": [
+                            {
+                                "name": "Corner Recovery ○",
+                                "level": 2
+                            }
+                        ],
+                        "conditions": []
+                    }
+                }
+            },
+            "Come, One and All!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "I’m Not Afraid of Any Ghosts!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 5,
+                            "stamina": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "The Star of the Show, the Heart of the Festival!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "3": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Toffee-Tinted Memories": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 5,
+                            "wit": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Voice Like None Other": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Forget Me Not!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "speed": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Rain or Shine": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10,
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "power": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Talent for Cuteness!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10,
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Charming ○"
+                        ]
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 20
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Charming ○"
+                        ]
+                    }
+                }
+            }
+        },
+        "Matikanetannhauser": {
+            "This Girl, That Girl, and the Other One": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "I Still Dream of Taking First!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Dizzy, Burning, and Fighting for the Win": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "The Shining, Glittering Girl Ahead": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "power": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Soft and Sparkly Aspirations": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "There's Always Next Time": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Love Tastes Like Grilled Mackerel": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "mood": 1,
+                            "speed": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Swift Resolution!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "energy": 5,
+                            "skill_pts": 15
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Tuckered Out": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": -5,
+                            "mood": -1
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Long-Awaited Lunch": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "mood": 1,
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {},
+                        "skills": [
+                            {
+                                "name": "Pace Strategy",
+                                "level": 1
+                            }
+                        ],
+                        "conditions": []
+                    }
+                }
+            },
+            "Machitan's Mun Mun Day": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "outcomes": {
+                            "success": {
+                                "effects": {
+                                    "power": 10,
+                                    "guts": 10,
+                                    "mood": 1
+                                },
+                                "skills": [],
+                                "conditions": []
+                            },
+                            "fail": {
+                                "effects": {
+                                    "power": 10,
+                                    "guts": 10,
+                                    "mood": -1
+                                },
+                                "skills": [],
+                                "conditions": []
+                            }
+                        }
+                    }
+                }
+            },
+            "A Bubbly Partnership": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Hospitali-Don't": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Machitan Hospitality!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "3": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "I'll Be a Dependable Big Sis!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Machitan's First Hat": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 5,
+                            "wit": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Step Beyond Ordinary": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "power": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Machitan the Wedding Officiant": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10,
+                            "skill_pts": 15
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Menu Makeover": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10,
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Hot Topic"
+                        ]
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10,
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Hot Topic"
+                        ]
+                    }
+                }
+            }
+        },
+        "Satono Diamond": {
+            "That Which Strengthens Me": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Long Ways to Go": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "That Which Hinders Me": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Chasing the Distant Future": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Hiccup SOS": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "The Forbidden Blend": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "mood": 1,
+                            "stamina": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Overshooting the Mark": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "mood": -1,
+                            "stamina": -5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Dream Too Big": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "power": 10,
+                            "guts": 5
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {},
+                        "skills": [
+                            {
+                                "name": "Straightaway Adept",
+                                "level": 1
+                            }
+                        ],
+                        "conditions": []
+                    }
+                }
+            },
+            "Follow Those You Admire": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 15
+                        },
+                        "skills": [
+                            {
+                                "name": "Deep Breaths",
+                                "level": 1
+                            }
+                        ],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "energy": 10,
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "3": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Practice Perfect ○"
+                        ]
+                    }
+                }
+            },
+            "Back-Alley Adventure": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Fresh and Tasty!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Heart-Pounding Thrills": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "3": {
+                        "description": "",
+                        "effects": {
+                            "wit": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "Shopfront Showdown": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "The Key to Color Coordination": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "guts": 10
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "A Sturdy Diamond Wrapped in Silk": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "guts": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "The Sweepy 5 ☆ Initiation Test!": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "speed": 20
+                        },
+                        "skills": [],
+                        "conditions": []
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "power": 10,
+                            "skill_pts": 15
+                        },
+                        "skills": [],
+                        "conditions": []
+                    }
+                }
+            },
+            "An Umamusume of the Satono Family": {
+                "choices": {
+                    "1": {
+                        "description": "",
+                        "effects": {
+                            "wit": 20
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Hot Topic"
+                        ]
+                    },
+                    "2": {
+                        "description": "",
+                        "effects": {
+                            "stamina": 10,
+                            "power": 10
+                        },
+                        "skills": [],
+                        "conditions": [
+                            "Hot Topic"
+                        ]
+                    }
+                }
+            }
         }
     },
     "support_card_events": {
@@ -38267,6 +39297,973 @@
                                 "skill_pts": 15
                             },
                             "skills": [],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Narita Top Road (SSR Speed)": {
+            "type": "SSR Speed",
+            "events": {
+                "A Thorough Inspection": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 20,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "speed": 25,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "A Diligent Effort": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Up-Tempo",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Anything for My Classmates": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "mood": 1,
+                                "energy": -10,
+                                "speed": 7,
+                                "stamina": 7,
+                                "wit": 7,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Pace Chaser Savvy ○",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Great Expectations": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "speed": 15,
+                                "stamina": 15,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Pressure",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": 20,
+                                "skill_pts": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Rivals Know Best": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "speed": 15,
+                                "stamina": 15,
+                                "skill_pts": 20,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Firm Course Menace",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Mejiro Bright (SSR Stamina)": {
+            "type": "SSR Stamina",
+            "events": {
+                "Slow and Leisurely": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 15,
+                                "guts": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "speed": 15,
+                                "power": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Sure and Steady": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 10,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Deep Breaths",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "wit": 20,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "I'll Help Search!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "mood": 1,
+                                "stamina": 10,
+                                "friendship": 10
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": 10,
+                                "wit": 10,
+                                "friendship": 10
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "I'll Go on Stage!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 15
+                            },
+                            "skills": [
+                                {
+                                    "name": "Early Start",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "I'll Win!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 15,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Overwhelming Pressure",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Satono Diamond (SSR Wit)": {
+            "type": "SSR Wit",
+            "events": {
+                "I Love New Things!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "guts": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "stamina": 20,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "I Love Complicated Things!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 5,
+                                "guts": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Hesitant Front Runners",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Unseen Assistance": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "wit": 10,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Sympathy",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Words Aren't Enough": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "speed": 10,
+                                "wit": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "The Dream We All Share": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "outcomes": {
+                                "success": {
+                                    "effects": {
+                                        "wit": 10,
+                                        "friendship": 5
+                                    },
+                                    "skills": [
+                                        {
+                                            "name": "Be Still",
+                                            "level": 3
+                                        }
+                                    ],
+                                    "conditions": []
+                                },
+                                "fail": {
+                                    "effects": {
+                                        "wit": 30,
+                                        "friendship": 5
+                                    },
+                                    "skills": [
+                                        {
+                                            "name": "Lie in Wait",
+                                            "level": 3
+                                        }
+                                    ],
+                                    "conditions": []
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "Marvelous Sunday (SSR Guts)": {
+            "type": "SSR Guts",
+            "events": {
+                "Marvelous, No Question ☆": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 10,
+                                "speed": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "mood": 1,
+                                "speed": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "How To Be More Marvelous ☆": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 10,
+                                "mood": 1,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Hanshin Racecourse ○",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Marvelous☆Dive!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "wit": 10,
+                                "skill_pts": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "guts": 25,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Marvelous☆School!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "skill_pts": 30,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Marvelous☆Victory!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "guts": 10,
+                                "wit": 10,
+                                "skill_pts": 20,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Adrenaline Rush",
+                                    "level": 3
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Mejiro Ryan (SR Stamina)": {
+            "type": "SR Stamina",
+            "events": {
+                "My Muscles and Me, Onward to Tomorrow!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "power": 15,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "max_energy": 4,
+                                "power": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "It's Not Like I Like Romance!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Pace Strategy",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": 30,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "All Roads Lead to Gains!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Success Starts with Reps!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 25,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "stamina": 10,
+                                "power": 5,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Late Surger Straightaways ○",
+                                    "level": 2
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Admire Vega (SR Guts)": {
+            "type": "SR Guts",
+            "events": {
+                "Awkward Triangulum": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "power": 15,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Lonesome Cepheus": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Subdued Pace Chasers",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "wit": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "The Joy of Being Together": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 20,
+                                "speed": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "wit": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": [
+                                "Practice Perfect ○"
+                            ]
+                        }
+                    }
+                },
+                "Toward the Brightest Star": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "guts": 10,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "End Closer Savvy ○",
+                                    "level": 2
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Sakura Bakushin O (SR Power)": {
+            "type": "SR Power",
+            "events": {
+                "Genius Efficiency!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "speed": 15,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "speed": 5,
+                                "power": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Enough to Break into a Dash!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Gap Closer",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "speed": 10,
+                                "power": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "A Bakushin Greeting!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "speed": 30,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "skill_pts": 30,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "The Value of Greetings": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "power": 10,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Tail Held High",
+                                    "level": 2
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                }
+            }
+        },
+        "Special Week (SR Power)": {
+            "type": "SR Power",
+            "events": {
+                "Watch Where You're Going!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Extra Tank",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "guts": 15,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "So Many Options!": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 10,
+                                "mood": 1,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "energy": -10,
+                                "stamina": 15,
+                                "skill_pts": 15,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "Unspoken Feelings": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "energy": 15,
+                                "mood": 1,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "A Small Thank You": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "outcomes": {
+                                "success": {
+                                    "effects": {
+                                        "energy": 10,
+                                        "friendship": 5
+                                    },
+                                    "skills": [
+                                        {
+                                            "name": "Head-On",
+                                            "level": 3
+                                        }
+                                    ],
+                                    "conditions": []
+                                },
+                                "fail": {
+                                    "effects": {
+                                        "energy": 10
+                                    },
+                                    "skills": [],
+                                    "conditions": []
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "Curren Chan (SR Speed)": {
+            "type": "SR Speed",
+            "events": {
+                "#UrUniqueCuteness": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "speed": 5,
+                                "wit": 10,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "speed": 10,
+                                "power": 5,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        }
+                    }
+                },
+                "#Cuteness4U ☆": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "skill_pts": 15,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Intimidate",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "#AWildCurrenAppeared": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "speed": 20,
+                                "friendship": 5
+                            },
+                            "skills": [],
+                            "conditions": []
+                        },
+                        "2": {
+                            "description": "",
+                            "effects": {
+                                "skill_pts": 10,
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Shrewd Step",
+                                    "level": 1
+                                }
+                            ],
+                            "conditions": []
+                        }
+                    }
+                },
+                "#CuteFluffyOverload": {
+                    "choices": {
+                        "1": {
+                            "description": "",
+                            "effects": {
+                                "friendship": 5
+                            },
+                            "skills": [
+                                {
+                                    "name": "Sprint Corners ○",
+                                    "level": 1
+                                }
+                            ],
                             "conditions": []
                         }
                     }
